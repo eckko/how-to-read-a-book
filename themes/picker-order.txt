@@ -1,0 +1,28 @@
+# The order themes appear in the picker. One theme id per line.
+# Themes not listed here are added at the end, in alphabetical order.
+classic
+lego
+clay
+pastel
+comic
+whiteboard
+anime
+watercolor
+university
+professional
+vedic
+ayurveda
+history
+universe
+maths
+vmaths
+geometry
+sanskrit
+exercise
+food
+yoga
+meditation
+brain
+social
+music
+art

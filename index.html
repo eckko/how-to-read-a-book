@@ -1,0 +1,291 @@
+<!doctype html>
+<!--
+  Recall Quiz: a practice page for one book.
+
+  The questions come from questions.json. Everything else is the same for
+  every book. See README.md for how it all fits together.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>How to Read a Book</title>
+  <link rel="icon" href="images/how-to-read-a-book-magnifier-180.ico" type="image/x-icon">
+  <link rel="apple-touch-icon" sizes="180x180" href="images/how-to-read-a-book-magnifier-180.png">
+
+  <!-- Styles. Order matters: later files win when rules clash. -->
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/home.css">
+  <link rel="stylesheet" href="css/question.css">
+  <link rel="stylesheet" href="css/question-types.css">
+  <link rel="stylesheet" href="css/results.css">
+  <link rel="stylesheet" href="css/themes.css">
+  <link rel="stylesheet" href="css/phone.css">
+
+  <!-- Apply the saved theme before the page appears, so it never
+       flashes the wrong colours. -->
+  <script src="js/themes-list.js"></script>
+  <script src="js/theme-picker.js"></script>
+</head>
+<body>
+
+<!-- Fixed pill in the top right during a session -->
+<div class="session-pill hidden" id="session-pill" aria-live="off">
+  <span id="session-pill-label">Time left</span>
+  <b id="session-pill-value">0:00</b>
+</div>
+
+<main>
+  <header class="page-header">
+    <div class="mascot" aria-hidden="true"></div>
+    <div class="title-block">
+      <h1 id="book-title">Recall Quiz</h1>
+      <p class="book-summary" id="book-summary"></p>
+    </div>
+    <button type="button" class="theme-button" id="theme-button"
+            aria-expanded="false" aria-controls="theme-panel">
+      <i></i>Theme
+    </button>
+    <div class="day-streak" id="day-streak"></div>
+  </header>
+
+  <!-- Theme picker. The tiles are added by js/theme-picker.js. -->
+  <section class="panel hidden" id="theme-panel">
+    <h3>Mode</h3>
+    <div class="choice-group" id="theme-mode-choice">
+      <button type="button" data-theme-mode="light">Light</button>
+      <button type="button" data-theme-mode="dark">Dark</button>
+      <button type="button" data-theme-mode="system">System</button>
+    </div>
+    <h3>Theme</h3>
+    <div class="theme-tiles" id="theme-tiles"></div>
+  </section>
+
+  <!-- ============================ Home ============================ -->
+  <section id="home-screen">
+    <div class="panel recent-results hidden" id="recent-results"></div>
+
+    <div class="panel">
+      <div class="progress-overview">
+        <svg class="progress-ring" viewBox="0 0 100 100" aria-hidden="true">
+          <defs>
+            <linearGradient id="progress-ring-gradient"
+                            x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" style="stop-color:var(--color-pop-2)"/>
+              <stop offset="1" style="stop-color:var(--color-pop-3)"/>
+            </linearGradient>
+          </defs>
+          <circle class="ring-track" cx="50" cy="50" r="42"
+                  fill="none" stroke-width="9"/>
+          <circle class="ring-arc" id="progress-ring-arc"
+                  cx="50" cy="50" r="42" fill="none" stroke-width="9"
+                  stroke-linecap="round" transform="rotate(-90 50 50)"
+                  stroke-dasharray="263.9" stroke-dashoffset="263.9"/>
+          <text id="progress-ring-text" x="50" y="58"
+                text-anchor="middle">0%</text>
+        </svg>
+        <div>
+          <div class="progress-tally" id="progress-tally"></div>
+          <p class="today-summary" id="today-summary"></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="session-setup">
+      <h2>What do you want to practise?</h2>
+      <div class="fields">
+
+        <label class="field">
+          <span id="unit-picker-label">Chapter</span>
+          <select id="unit-picker"></select>
+        </label>
+
+        <div class="field">
+          <span>Which questions</span>
+          <div class="choice-group" id="question-filter-choice">
+            <button type="button" data-value="due"
+                    aria-pressed="true">Due and new</button>
+            <button type="button" data-value="gaps"
+                    aria-pressed="false">My gaps</button>
+            <button type="button" data-value="all"
+                    aria-pressed="false">Everything</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span>Session length</span>
+          <div class="choice-group" id="session-length-choice">
+            <button type="button" data-value="questions"
+                    aria-pressed="true">By questions</button>
+            <button type="button" data-value="time"
+                    aria-pressed="false">By time</button>
+          </div>
+
+          <div class="length-row" id="length-by-questions">
+            <input type="number" id="question-count-input" min="1"
+                   max="999" value="10" inputmode="numeric"
+                   aria-label="Number of questions" placeholder="All">
+            <span>questions</span>
+            <button type="button" class="pill-button"
+                    data-fills="question-count-input"
+                    data-fill-value="5">5</button>
+            <button type="button" class="pill-button"
+                    data-fills="question-count-input"
+                    data-fill-value="10">10</button>
+            <button type="button" class="pill-button"
+                    data-fills="question-count-input"
+                    data-fill-value="25">25</button>
+            <button type="button" class="pill-button"
+                    data-fills="question-count-input"
+                    data-fill-value="50">50</button>
+            <button type="button" class="pill-button"
+                    data-fills="question-count-input"
+                    data-fill-value="">All</button>
+          </div>
+
+          <div class="length-row hidden" id="length-by-time">
+            <input type="number" id="minutes-input" min="1" max="240"
+                   value="15" inputmode="numeric" aria-label="Minutes">
+            <span>minutes. Answer as many as you can.</span>
+            <button type="button" class="pill-button"
+                    data-fills="minutes-input"
+                    data-fill-value="5">5</button>
+            <button type="button" class="pill-button"
+                    data-fills="minutes-input"
+                    data-fill-value="10">10</button>
+            <button type="button" class="pill-button"
+                    data-fills="minutes-input"
+                    data-fill-value="15">15</button>
+            <button type="button" class="pill-button"
+                    data-fills="minutes-input"
+                    data-fill-value="30">30</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span>Timer per question (optional)</span>
+          <div class="choice-group" id="question-timer-choice">
+            <button type="button" data-value="0"
+                    aria-pressed="true">Off</button>
+            <button type="button" data-value="15"
+                    aria-pressed="false">15s</button>
+            <button type="button" data-value="30"
+                    aria-pressed="false">30s</button>
+            <button type="button" data-value="60"
+                    aria-pressed="false">60s</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span>Confidence check (optional)</span>
+          <div class="choice-group" id="confidence-choice">
+            <button type="button" data-value="off"
+                    aria-pressed="true">Off</button>
+            <button type="button" data-value="on"
+                    aria-pressed="false">Ask how sure I am</button>
+          </div>
+        </div>
+
+      </div>
+      <button class="start-button" id="start-button"
+              type="button">Start practice</button>
+      <p class="ready-summary" id="ready-summary"></p>
+      <p class="storage-warning" id="storage-warning"></p>
+    </div>
+  </section>
+
+  <!-- Shown when questions.json cannot be read -->
+  <section class="panel hidden" id="load-error">
+    <h2>Could not load the questions</h2>
+    <p class="note">
+      This page reads <b>questions.json</b>, which browsers block when you
+      open the page directly from a folder. On GitHub Pages it loads
+      normally. To use it from a folder, pick the file here, or run
+      <b>python3 -m http.server</b> in the folder and open the address it
+      prints.
+    </p>
+    <div class="button-row">
+      <label class="button file-picker-button">
+        Choose questions.json
+        <input type="file" id="questions-file-input"
+               accept="application/json,.json" class="hidden">
+      </label>
+    </div>
+  </section>
+
+  <!-- ===================== Question / results ===================== -->
+  <!-- js/session.js fills this card with one question at a time,
+       then js/results-screen.js shows the results in it. -->
+  <section class="panel question-card hidden" id="question-card"
+           aria-live="polite"></section>
+
+  <!-- ======================= Where you stand ====================== -->
+  <section class="panel" id="where-you-stand"></section>
+
+  <section class="panel">
+    <h2>Your progress file</h2>
+    <div class="button-row">
+      <button class="button" id="download-progress-button"
+              type="button">Download</button>
+      <button class="button" id="load-progress-button"
+              type="button">Load</button>
+      <button class="button" id="reset-progress-button"
+              type="button">Reset</button>
+      <input type="file" id="progress-file-input"
+             accept="application/json" class="hidden">
+    </div>
+    <p class="note">
+      Progress is saved in this browser on this device. Download a copy to
+      move it to another device or keep a backup.
+    </p>
+  </section>
+</main>
+
+<!--
+  Scripts. Each file adds its part to one shared object, window.RecallQuiz.
+  Order matters: helpers first, the screens next, and main.js last
+  because it starts everything.
+-->
+<script src="js/helpers.js"></script>
+<script src="js/book.js"></script>
+<script src="js/progress-storage.js"></script>
+<script src="js/spaced-repetition.js"></script>
+<script src="js/celebration.js"></script>
+<script src="js/timers.js"></script>
+<script src="js/answer-feedback.js"></script>
+<script src="js/question-types/question-types.js"></script>
+<script src="js/question-types/multiple-choice.js"></script>
+<script src="js/question-types/select-all.js"></script>
+<script src="js/question-types/fill-in-the-blank.js"></script>
+<script src="js/question-types/put-in-order.js"></script>
+<script src="js/question-types/match-pairs.js"></script>
+<script src="js/question-types/sort-into-groups.js"></script>
+<script src="js/question-types/recall.js"></script>
+<script src="js/session.js"></script>
+<script src="js/results-screen.js"></script>
+<script src="js/home-screen.js"></script>
+<script src="js/session-settings.js"></script>
+<script src="js/progress-file.js"></script>
+<script src="js/main.js"></script>
+<script>
+/* If any script failed to load (for example a file missing from the
+   upload), say so on the page instead of leaving it blank. */
+(function reportMissingScripts() {
+  var quiz = window.RecallQuiz || {};
+  var expected = ["helpers", "book", "progress", "memory", "timers",
+    "answerFeedback", "questionTypes", "session", "resultsScreen",
+    "homeScreen", "settings"];
+  var missing = expected.filter(function (name) { return !quiz[name]; });
+  if (missing.length === 0) { return; }
+  var box = document.createElement("div");
+  box.setAttribute("role", "alert");
+  box.style.cssText = "position:fixed;inset:0 0 auto 0;z-index:99999;" +
+    "padding:16px;background:#b3261e;color:#fff;font:16px/1.4 sans-serif";
+  box.textContent = "The quiz could not start: these parts did not load: " +
+    missing.join(", ") + ". Make sure every file in the js/ folder " +
+    "(including js/helpers.js) is uploaded, then hard-refresh (Ctrl+Shift+R).";
+  document.body.appendChild(box);
+})();
+</script>
+</body>
+</html>
