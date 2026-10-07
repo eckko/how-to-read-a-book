@@ -21,7 +21,10 @@
  *     daysPracticed: ["2026-10-5"],     // year-month-day, no zero padding
  *     recentResults: [ { finishedAt, percent, marks, questionCount,
  *                        verdict, scopeName, secondsPerQuestion,
- *                        sessionMinutes } ]   // newest first, at most 5
+ *                        sessionMinutes } ],  // newest first, at most 5
+ *     resetAt: 1760000000000   // optional: when Reset was last pressed.
+ *                              // Cloud sync uses it so a reset on one
+ *                              // device is not undone by another.
  *   }
  *
  * Older saves (version 1, with short names like "box" and "due") are
@@ -83,7 +86,13 @@
     return progress.inMemoryCopy;
   }
 
-  /** Write the current progress to the browser. */
+  /**
+   * Write the current progress to the browser.
+   *
+   * Every save also announces itself with a "recallquiz:progress-saved"
+   * event on the document. Optional add-ons (such as cloud sync in
+   * js/sync/) listen for it; nothing here depends on them.
+   */
   function saveProgress() {
     progress.inMemoryCopy = progress.saved;
     try {
@@ -94,6 +103,7 @@
       progress.isPersistent = false;
     }
     showStorageWarningIfNeeded();
+    document.dispatchEvent(new CustomEvent("recallquiz:progress-saved"));
   }
 
   /** Tell the reader when their progress cannot be kept. */
@@ -114,6 +124,7 @@
   /** Forget everything for this book. */
   function eraseProgress() {
     progress.saved = createEmptyProgress();
+    progress.saved.resetAt = Date.now();
     saveProgress();
   }
 
@@ -186,11 +197,39 @@
     return upgraded;
   }
 
+  /**
+   * Another tab of this site saved this book's progress (or cleared it).
+   * Take its copy as it is, so two open tabs never overwrite each other's
+   * answers. Every tab saves after every answer, so the stored copy is
+   * always the newest.
+   * @param {StorageEvent} event
+   */
+  function adoptCopyFromOtherTab(event) {
+    if (event.key !== progress.storageKey) {
+      return;
+    }
+    let stored = null;
+    try {
+      stored = event.newValue ? JSON.parse(event.newValue) : null;
+    } catch (badJson) {
+      return;
+    }
+    progress.saved = upgradeSavedProgress(stored);
+    progress.inMemoryCopy = progress.saved;
+    if (quiz.book.data) {
+      quiz.homeScreen.refresh();
+    }
+  }
+
+  window.addEventListener("storage", adoptCopyFromOtherTab);
+
   quiz.progress = Object.assign(progress, {
     openForBook,
     saveProgress,
     replaceProgress,
     eraseProgress,
     looksLikeProgress,
+    upgradeSavedProgress,
+    createEmptyProgress,
   });
 })((window.RecallQuiz = window.RecallQuiz || {}));

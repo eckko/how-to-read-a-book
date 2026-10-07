@@ -9,9 +9,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>How to Read a Book</title>
-  <link rel="icon" href="images/img.png" type="image/png">
-  <link rel="apple-touch-icon" sizes="180x180" href="images/img.png">
+  <title>Flow</title>
+  <link rel="icon" href="images/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" sizes="180x180" href="images/favicon.png">
 
   <!-- Styles. Order matters: later files win when rules clash. -->
   <link rel="stylesheet" href="css/base.css">
@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="css/question.css">
   <link rel="stylesheet" href="css/question-types.css">
   <link rel="stylesheet" href="css/results.css">
+  <link rel="stylesheet" href="css/cloud-sync.css">
   <link rel="stylesheet" href="css/themes.css">
   <link rel="stylesheet" href="css/phone.css">
 
@@ -63,6 +64,11 @@
 
   <!-- ============================ Home ============================ -->
   <section id="home-screen">
+    <!-- Optional "save to your account" bar, filled by
+         js/sync/cloud-sync.js. Stays hidden when sync is off. -->
+    <div class="panel cloud-sync-bar hidden" id="cloud-sync-bar"
+         aria-live="polite"></div>
+
     <div class="panel recent-results hidden" id="recent-results"></div>
 
     <div class="panel">
@@ -235,8 +241,9 @@
              accept="application/json" class="hidden">
     </div>
     <p class="note">
-      Progress is saved in this browser on this device. Download a copy to
-      move it to another device or keep a backup.
+      Progress is saved in this browser on this device, and in your
+      account if you sign in above. Download a copy to keep a backup or
+      move it to another device by hand.
     </p>
   </section>
 </main>
@@ -247,6 +254,8 @@
   because it starts everything.
 -->
 <script src="js/helpers.js"></script>
+<script src="js/transliteration.js"></script>
+<script src="js/math-display.js"></script>
 <script src="js/book.js"></script>
 <script src="js/progress-storage.js"></script>
 <script src="js/spaced-repetition.js"></script>
@@ -266,6 +275,11 @@
 <script src="js/home-screen.js"></script>
 <script src="js/session-settings.js"></script>
 <script src="js/progress-file.js"></script>
+<!-- Optional cloud sync. To remove it, delete these three lines (and the
+     js/sync folder). To change the database, see js/sync/README.md. -->
+<script src="js/sync/sync-config.js"></script>
+<script src="js/sync/progress-merge.js"></script>
+<script src="js/sync/cloud-sync.js"></script>
 <script src="js/main.js"></script>
 <script>
 /* If any script failed to load (for example a file missing from the

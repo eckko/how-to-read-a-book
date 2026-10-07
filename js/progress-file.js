@@ -40,6 +40,9 @@
         if (!quiz.progress.looksLikeProgress(backup)) {
           throw new Error("not a progress backup");
         }
+        // Stamped like a reset, so with cloud sync the backup replaces
+        // the account copy instead of being merged into it.
+        backup.resetAt = Date.now();
         quiz.progress.replaceProgress(backup);
         quiz.homeScreen.refresh();
         alert("Progress loaded.");
@@ -53,7 +56,7 @@
 
   /** Erase all progress for this book, after asking. */
   function resetProgress() {
-    if (confirm("Erase all progress saved in this browser?")) {
+    if (confirm("Erase all progress for this book?")) {
       quiz.progress.eraseProgress();
       quiz.homeScreen.refresh();
     }

@@ -2,8 +2,11 @@
 
 A practice page for one book. It asks you questions chapter by chapter,
 brings back the ones you miss sooner (spaced repetition), shows where your
-gaps are, and keeps your progress in your browser. It is plain HTML, CSS
-and JavaScript: no framework, no build step, nothing to install to use it.
+gaps are, and keeps your progress in your browser. Readers can also sign
+in (Google, through Firebase) to keep their progress across devices; this
+is optional and can be switched off or moved to another database (see
+[js/sync/README.md](js/sync/README.md)). It is plain HTML, CSS and
+JavaScript: no framework, no build step, nothing to install to use it.
 
 - [Try it on your computer](#try-it-on-your-computer)
 - [Put it online with GitHub Pages](#put-it-online-with-github-pages)
@@ -17,7 +20,7 @@ and JavaScript: no framework, no build step, nothing to install to use it.
 - [Testing](#testing)
 - [Code style](#code-style)
 
-AI agents: read [`AGENTS.md`](docs/AGENTS.md) and the
+AI agents: read [`AGENTS.md`](AGENTS.md) and the
 [`ai-context/`](ai-context/) folder first.
 
 ---
@@ -254,6 +257,7 @@ css/
   question.css             question card, options, feedback, timers
   question-types.css       the other question types
   results.css              the results screen
+  cloud-sync.css           the optional "sign in to sync" bar
   themes.css               GENERATED: colours and pictures per theme
   phone.css                changes for narrow screens (loaded last)
 
@@ -279,6 +283,12 @@ js/
   home-screen.js           progress ring, recent results, where you stand
   session-settings.js      the "What do you want to practise?" panel
   progress-file.js         download, load and reset progress
+  sync/                    OPTIONAL: save progress to an account
+    README.md              set up Firebase, turn off, or switch database
+    sync-config.js         which database and its settings (edit this)
+    progress-merge.js      combines two copies of progress
+    cloud-sync.js          sign-in bar and when to save
+    providers/             one adapter per database (firebase.js, ...)
   main.js                  starts everything (loaded last)
   theme-picker.js          light/dark/system and theme tiles (in <head>)
   themes-list.js           GENERATED: the list of themes
@@ -338,6 +348,11 @@ Saved in the browser under `recall-quiz:<book id>`, with readable names
 `js/progress-storage.js`. Older saves are upgraded automatically. Use
 **Download** to keep a backup or to move to another device. The theme
 choice is saved once for all books under `recall-quiz:theme`.
+
+If cloud sync is on (`js/sync/sync-config.js`), signed-in readers' progress
+is also saved in their account and merged across devices. Only progress
+is stored, never the questions. To set it up, turn it off, or switch to a
+different database, see [js/sync/README.md](js/sync/README.md).
 
 ### Themes
 

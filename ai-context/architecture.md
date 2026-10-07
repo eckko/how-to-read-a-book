@@ -10,6 +10,7 @@ index.html  (all screens live here; JS shows and hides them)
 │
 └─ end of <body>: the app scripts, in this order
      js/helpers.js
+     js/transliteration.js, js/math-display.js
      js/book.js
      js/progress-storage.js
      js/spaced-repetition.js
@@ -23,6 +24,8 @@ index.html  (all screens live here; JS shows and hides them)
      js/home-screen.js
      js/session-settings.js
      js/progress-file.js
+     js/sync/sync-config.js, progress-merge.js, cloud-sync.js  (optional)
+       cloud-sync loads js/sync/providers/<name>.js by itself
      js/main.js                              (starts the app; keep last)
 ```
 
@@ -47,6 +50,8 @@ adds one namespace to it (`js/theme-picker.js` is separate: it runs in
 | `quiz.session` | session.js | `state` (the running session), `startSession`, `goToNextQuestion`, `returnHome`; global keydown routing |
 | `quiz.resultsScreen` | results-screen.js | `showResults` |
 | `quiz.homeScreen` | home-screen.js | `showBookDetails`, `refresh` |
+| `quiz.progressMerge` | sync/progress-merge.js | `mergeProgress`, `sameProgress` (no database code) |
+| `quiz.cloudSync` | sync/cloud-sync.js | `registerProvider`, `saveNow`, `signIn`, `signOut`, `state`; the sign-in bar |
 | `quiz.settings` | session-settings.js | `current` (the panel's choices), `chooseQuestionsForSession`, `sessionMinutes`, `scopeName`, `updateReadySummary` |
 
 Load order matters in four ways, so keep the order in `index.html`:
@@ -62,6 +67,19 @@ Load order matters in four ways, so keep the order in `index.html`:
 - `main.js` starts the app, so it is last.
 
 Apart from that, modules call each other only inside functions.
+
+## Optional cloud sync
+
+`js/sync/` is an add-on. The core never calls it; it only sends three
+events on `document`: `recallquiz:book-opened` (main.js, detail.bookId),
+`recallquiz:progress-saved` (every `saveProgress`) and
+`recallquiz:session-finished` (results-screen.js). `cloud-sync.js` listens
+to them, merges with the account copy and saves through a database adapter
+in `js/sync/providers/`. Only adapters contain database code; the adapter
+interface and how to switch databases are in `js/sync/README.md`. Tests
+switch sync off by default (`open_page` serves a `provider: "none"`
+config) and test it with `providers/example-in-browser.js` and a fake
+Firebase SDK, so they never reach a real database.
 
 ## State
 
@@ -151,8 +169,8 @@ light or dark) on `<html>`. Defaults for every variable are in
 ## CSS layout
 
 Load order (later wins on equal specificity): `base.css`, `home.css`,
-`question.css`, `question-types.css`, `results.css`, `themes.css`,
-`phone.css`. Each rule is written once with its final value; there are
+`question.css`, `question-types.css`, `results.css`, `cloud-sync.css`,
+`themes.css`, `phone.css`. Each rule is written once with its final value; there are
 no "override" layers. Theme `extra.css` rules are scoped with
 `[data-theme="<id>"]`, so they win by specificity.
 
@@ -166,4 +184,6 @@ no "override" layers. Theme `extra.css` rules are scoped with
 | fill-in-the-blank matching | `js/question-types/fill-in-the-blank.js` |
 | a new setting on the setup panel | `index.html` + `js/session-settings.js` (`current`, a choice group), then read it in `resetState` in `js/session.js` |
 | phone layout | `css/phone.css` only |
+| cloud sync on/off, database settings | `js/sync/sync-config.js` |
+| a different database | a new `js/sync/providers/<name>.js` (see `js/sync/README.md`) |
 | a theme's look | `themes/<id>/`, then rebuild |

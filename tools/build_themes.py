@@ -73,6 +73,11 @@ OPTIONAL_VARIABLES = {
 }
 
 # Google Fonts the themes may use, with the weights to download.
+# System fonts that draw Devanagari (Sanskrit, Hindi) text, added after
+# every theme's own fonts so those letters never show as empty boxes.
+DEVANAGARI_FONTS = (', "Noto Sans Devanagari", "Nirmala UI", '
+                    '"Kohinoor Devanagari", "Devanagari Sangam MN", Mangal')
+
 # A font used in theme.json but missing here falls back to system fonts.
 GOOGLE_FONTS = {
     "Instrument Sans": "Instrument+Sans:wght@400;500;600",
@@ -237,8 +242,8 @@ def theme_variables(theme, scheme):
     variables = {COLOR_VARIABLES[key]: value
                  for key, value in colors.items()}
     variables.update({
-        "--font-body": theme["fonts"]["body"],
-        "--font-heading": theme["fonts"]["headings"],
+        "--font-body": theme["fonts"]["body"] + DEVANAGARI_FONTS,
+        "--font-heading": theme["fonts"]["headings"] + DEVANAGARI_FONTS,
         "--radius": theme["shape"]["radius"],
         "--radius-small": theme["shape"]["smallRadius"],
         "--border-width": theme["shape"]["borderWidth"],

@@ -5,6 +5,8 @@
  * questions.json: "accept": ["main answer", "other accepted wording", ...]
  *
  * Matching ignores capitals, punctuation and the words "the", "a", "an".
+ * Devanagari and Sanskrit (IAST) spellings are compared as plain Roman
+ * letters, so "धर्म", "dharma" and "dharmā" count as the same answer.
  * One wrong letter is forgiven in answers of 6 letters or more. If the
  * answer still does not match, the reader decides how close it was.
  */
@@ -34,9 +36,8 @@
    * @returns {string}
    */
   function simplifyForComparison(text) {
-    return String(text)
-      .toLowerCase()
-      .replace(/[^a-z0-9 ]+/g, " ")
+    return quiz.transliteration.toLooseRoman(text)
+      .replace(/[^\p{L}\p{N} ]+/gu, " ")
       .replace(/\b(the|a|an)\b/g, " ")
       .replace(/\s+/g, " ")
       .trim();

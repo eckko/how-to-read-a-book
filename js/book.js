@@ -85,7 +85,9 @@
    * @returns {string}
    */
   function unitShortName(question) {
-    return book.labels.unit + " " + unitNumber(question.unit);
+    const number = unitNumber(question.unit);
+    // Units without a number ("Preface") are shown as they are.
+    return number ? book.labels.unit + " " + number : question.unit;
   }
 
   /**

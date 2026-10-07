@@ -181,6 +181,8 @@
     });
     saved.recentResults = saved.recentResults.slice(0, RECENT_RESULTS_KEPT);
     quiz.progress.saveProgress();
+    // Optional add-ons (such as cloud sync) save at the end of a session.
+    document.dispatchEvent(new CustomEvent("recallquiz:session-finished"));
   }
 
   /**
