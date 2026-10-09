@@ -295,7 +295,11 @@
     panel.textContent = "";
     panel.appendChild(createElement("h2", null,
       view === "ideas" ? "Your ideas" : "Where you stand"));
-    panel.appendChild(createViewSwitch(view));
+    quiz.layout.showStandFolded(panel);
+    const controls = createElement("div", "stand-controls");
+    controls.appendChild(createViewSwitch(view));
+    controls.appendChild(quiz.layout.createExpandControls(panel));
+    panel.appendChild(controls);
     if (view === "ideas" && !hasIdeas) {
       panel.appendChild(createElement("p", "empty-note",
         "This book has questions but no teaching ideas, so there is " +
@@ -340,7 +344,10 @@
     const questions = quiz.book.questionsInUnit(unitId);
     const percentSolid = percentSolidOf(questions);
     const details = createElement("details", "unit-progress");
-    details.open = quiz.learning.hasConcepts() && isNextUnit(unitId);
+    const start = quiz.layout.chaptersStart();
+    details.open = start === "open" ||
+      (start === "next" && quiz.learning.hasConcepts() &&
+        isNextUnit(unitId));
     const summary = createElement("summary");
     const name = createElement("div", "unit-name");
     name.appendChild(createElement("b", null, unitId));
@@ -404,6 +411,7 @@
       }, 0);
     const percentSolid = percentSolidOf(topic.questions);
     const row = createElement("details", "section-row");
+    row.open = quiz.layout.innerStartsOpen();
     const summary = createElement("summary");
     summary.appendChild(createElement("span",
       "section-name" + (missCount ? " is-weak" : ""),
@@ -463,6 +471,7 @@
     const percentSolid =
       percentSolidOf(quiz.learning.questionsOf(concept.id));
     const row = createElement("details", "concept-row");
+    row.open = quiz.layout.innerStartsOpen();
     row.dataset.conceptId = concept.id;
     const summary = createElement("summary");
     summary.appendChild(createElement("span", "concept-title",
@@ -613,6 +622,12 @@
     bar.appendChild(fill);
     return bar;
   }
+
+  document.addEventListener("recallquiz:layout-applied", function redraw() {
+    if (quiz.book.data) {
+      showWhereYouStand();
+    }
+  });
 
   quiz.homeScreen = { showBookDetails, refresh };
 })((window.RecallQuiz = window.RecallQuiz || {}));

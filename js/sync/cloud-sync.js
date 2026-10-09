@@ -145,6 +145,8 @@
     document.addEventListener("recallquiz:session-finished", saveNow);
     document.addEventListener("recallquiz:theme-changed",
       handleThemeChanged);
+    document.addEventListener("recallquiz:layout-changed",
+      handleThemeChanged);
     document.addEventListener("visibilitychange",
       function saveWhenHidden() {
         if (document.visibilityState === "hidden") {
@@ -208,31 +210,52 @@
    */
   function syncSettings(user) {
     const theme = window.RecallQuizTheme;
+    const layout = quiz.layout;
     if (!theme || !sync.provider) {
       return Promise.resolve();
     }
     return withTimeout(
       sync.provider.readProgress(user.id, SETTINGS_DOCUMENT_ID))
       .then(function chooseNewest(account) {
-        const local = theme.read();
-        const saved = account && account.theme;
         if (sync.user !== user) {
           return undefined;
         }
-        if (saved && theme.useRemote(
-            { themeId: saved.t, mode: saved.m, at: saved.a })) {
-          return undefined;
+        const next = {};
+        let mustWrite = false;
+        const savedTheme = account && account.theme;
+        const savedLayout = account && account.layout;
+        if (savedTheme) {
+          next.theme = savedTheme;
         }
-        const isLocalNewer = local.at > 0 && (!saved || local.at > saved.a);
-        if (!isLocalNewer) {
+        if (savedLayout) {
+          next.layout = savedLayout;
+        }
+        const localTheme = theme.read();
+        const themeUsed = savedTheme && theme.useRemote(
+          { themeId: savedTheme.t, mode: savedTheme.m, at: savedTheme.a });
+        if (!themeUsed && localTheme.at > 0 &&
+            (!savedTheme || localTheme.at > savedTheme.a)) {
+          next.theme = { t: localTheme.themeId, m: localTheme.mode,
+            a: localTheme.at };
+          mustWrite = true;
+        }
+        if (layout) {
+          const localLayout = layout.readForAccount();
+          const layoutUsed = savedLayout && layout.useRemote(savedLayout);
+          if (!layoutUsed && localLayout.a > 0 &&
+              (!savedLayout || localLayout.a > savedLayout.a)) {
+            next.layout = localLayout;
+            mustWrite = true;
+          }
+        }
+        if (!mustWrite) {
           return undefined;
         }
         return withTimeout(sync.provider.writeProgress(
-          user.id, SETTINGS_DOCUMENT_ID,
-          { theme: { t: local.themeId, m: local.mode, a: local.at } }));
+          user.id, SETTINGS_DOCUMENT_ID, next));
       })
       .catch(function ignoreSettingsProblem(problem) {
-        console.error("Theme sync failed:", problem);
+        console.error("Settings sync failed:", problem);
       });
   }
 

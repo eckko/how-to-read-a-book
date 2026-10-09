@@ -577,3 +577,82 @@ select {
 .section-row .concept-list {
   margin: 4px 0 10px 14px;
 }
+
+/* ------------------------------------------------------------------ */
+/* Folding panels, expand/collapse all, home settings                  */
+/* ------------------------------------------------------------------ */
+
+.in-session .settings-button {
+  display: none;
+}
+
+/* The heading of a foldable panel is a button */
+.panel-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.panel-toggle .chevron {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.15s;
+}
+
+.panel.is-collapsed .panel-toggle .chevron {
+  transform: rotate(-45deg);
+}
+
+.panel.is-collapsed > :not(h2) {
+  display: none;
+}
+
+.panel.is-collapsed > h2 {
+  margin-bottom: 0;
+}
+
+.stand-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.expand-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.expand-controls button {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+
+#settings-panel h3 {
+  margin: 0 0 8px;
+  font: 600 0.95rem var(--font-body);
+}
+
+.settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 10px 0;
+}

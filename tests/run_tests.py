@@ -527,7 +527,8 @@ def test_home_views(browser):
     page.close()
 
 
-def open_synced_page(browser, account_theme=None, local_theme=None):
+def open_synced_page(browser, account_theme=None, local_theme=None,
+                     account_layout=None):
     """Open the quiz signed in to the test account (example-in-browser),
     with an optional theme already in the account or in this browser."""
     page = browser.new_page(viewport={"width": 430, "height": 900})
@@ -545,6 +546,11 @@ def open_synced_page(browser, account_theme=None, local_theme=None):
             "sessionStorage.setItem('recall-quiz-example-store:"
             "example-user/_settings', JSON.stringify({theme: "
             + json.dumps(account_theme) + "}));")
+    if account_layout:
+        lines.append(
+            "sessionStorage.setItem('recall-quiz-example-store:"
+            "example-user/_settings', JSON.stringify({layout: "
+            + json.dumps(account_layout) + "}));")
     if local_theme:
         lines.append("localStorage.setItem('recall-quiz:theme', "
                      "JSON.stringify(" + json.dumps(local_theme) + "));")
@@ -597,6 +603,72 @@ def test_theme_follows_the_account(browser):
     theme = page.evaluate("() => document.documentElement.dataset.theme")
     check("a newer choice here beats an older one in the account",
           theme == "lego" and not page.errors, "; ".join(page.errors))
+    page.close()
+
+
+def test_home_layout(browser):
+    """Fold panels, expand/collapse all, and the saved starting layout."""
+    print("Home layout")
+    page = open_page(browser, view=None)
+    check("the setup panel starts open",
+          page.is_visible("#session-setup .fields"))
+    page.click("#session-setup .panel-toggle")
+    check("clicking its heading folds it",
+          not page.is_visible("#session-setup .fields"))
+    page.click("#session-setup .panel-toggle")
+    check("clicking again opens it", page.is_visible("#session-setup .fields"))
+    page.click("#where-you-stand .panel-toggle")
+    check("the progress panel folds",
+          not page.is_visible("#where-you-stand .unit-progress"))
+    page.click("#where-you-stand .panel-toggle")
+    page.click("#where-you-stand .expand-controls button:text('Expand all')")
+    closed = page.locator("#where-you-stand details:not([open])").count()
+    check("Expand all opens every chapter, topic and idea", closed == 0,
+          str(closed))
+    page.click("#where-you-stand .expand-controls button:text('Collapse all')")
+    opened = page.locator("#where-you-stand details[open]").count()
+    check("Collapse all closes them all", opened == 0, str(opened))
+
+    page.click("#settings-button")
+    page.click("[data-layout='setup'] [data-value='closed']")
+    check("choosing Folded in settings folds the setup panel now",
+          not page.is_visible("#session-setup .fields"))
+    page.click("[data-layout='chapters'] [data-value='open']")
+    page.click("[data-layout='inner'] [data-value='open']")
+    closed = page.locator("#where-you-stand details:not([open])").count()
+    check("All open plus Open starts everything open", closed == 0,
+          str(closed))
+    page.reload()
+    page.wait_for_selector("#where-you-stand .unit-progress")
+    check("the starting layout is remembered after a reload",
+          not page.is_visible("#session-setup .fields")
+          and page.locator("#where-you-stand details:not([open])").count()
+          == 0)
+    check("no errors", not page.errors, "; ".join(page.errors))
+    page.close()
+
+    page = open_synced_page(browser)
+    page.click("#settings-button")
+    page.click("[data-layout='stand'] [data-value='closed']")
+    page.wait_for_function(
+        "(sessionStorage.getItem('recall-quiz-example-store:example-user/"
+        "_settings') || '').includes('layout')", timeout=8000)
+    saved = page.evaluate(
+        "() => JSON.parse(sessionStorage.getItem("
+        "'recall-quiz-example-store:example-user/_settings')).layout")
+    check("choosing a layout saves it to the account",
+          saved and saved["w"] == "closed", str(saved))
+    page.close()
+
+    page = open_synced_page(browser, account_layout={
+        "s": "closed", "w": "open", "c": "closed", "i": "open",
+        "a": 2000000000000})
+    page.wait_for_function(
+        "!document.querySelector('#session-setup .fields')"
+        ".getClientRects().length", timeout=8000)
+    check("a layout saved in the account is used on this device",
+          page.get_attribute("[data-layout='setup'] [data-value='closed']",
+                             "aria-pressed") == "true")
     page.close()
 
 
@@ -1160,6 +1232,7 @@ def main():
             test_themes(browser)
             test_home_views(browser)
             test_theme_follows_the_account(browser)
+            test_home_layout(browser)
             test_phone_width(browser)
             browser.close()
     finally:

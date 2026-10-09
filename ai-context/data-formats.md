@@ -187,3 +187,11 @@ and `unitSummaries`; per concept `question`, `core`, `htrab` and
 `card.limits`; per question `htrab`. See `learning-design.md`. Saved
 progress is still unchanged (format v2): a pretest only adds `pretested` and
 `pretestResult` to a question record; concept status is derived.
+
+## Home layout choices
+
+`localStorage` key `recall-quiz-home-layout` holds `{setup, stand, chapters, inner, at}`
+(`setup`/`stand`: "open" | "closed"; `chapters`: "next" | "open" | "closed";
+`inner`: "closed" | "open"; `at`: time of the last choice). In the account, the
+`_settings` document holds `layout: {s, w, c, i, a}` next to `theme`; the newest
+`a` wins. Code: `js/home-layout.js` (Settings panel, folding, Expand all).

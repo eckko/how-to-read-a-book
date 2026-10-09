@@ -322,6 +322,7 @@ js/
   session.js               runs a session: one question after another
   results-screen.js        the end of a session
   home-screen.js           progress ring, recent results, where you stand
+  home-layout.js           Settings panel, folding panels, Expand all
   session-settings.js      the "What do you want to practise?" panel
   progress-file.js         download, load and reset progress
   main.js                  starts everything (loaded last)
