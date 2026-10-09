@@ -209,7 +209,61 @@
       });
       onChoose(chosen.getAttribute("data-value"));
       updateReadySummary();
+      notifyPracticeChanged(groupId);
     });
+  }
+
+  /**
+   * Tell the page that a choice kept with the reader's settings changed
+   * (the timer, the confidence check or the chapter). The custom
+   * practice choices are for one session and are not announced.
+   * @param {string} groupId
+   */
+  function notifyPracticeChanged(groupId) {
+    if (groupId === "question-timer-choice" ||
+        groupId === "confidence-choice" || groupId === "unit-picker") {
+      document.dispatchEvent(new CustomEvent("recallquiz:practice-changed"));
+    }
+  }
+
+  /** Press the button of a group that has this data-value. */
+  function markGroup(groupId, value) {
+    Array.from(findElement(groupId).children).forEach(
+      function mark(button) {
+        button.setAttribute("aria-pressed",
+          String(button.getAttribute("data-value") === value));
+      });
+  }
+
+  /** @returns {{timer: number, confidence: boolean, unit: string}} */
+  function readChoices() {
+    return {
+      timer: current.secondsPerQuestion,
+      confidence: current.askConfidence,
+      unit: chosenUnit(),
+    };
+  }
+
+  /**
+   * Use saved choices (from this browser or the account). Values that do
+   * not fit this book (a chapter it does not have) are ignored.
+   * @param {{timer?: number, confidence?: boolean, unit?: string}} wanted
+   */
+  function useChoices(wanted) {
+    if ([0, 15, 30, 60].indexOf(wanted.timer) >= 0) {
+      current.secondsPerQuestion = wanted.timer;
+      markGroup("question-timer-choice", String(wanted.timer));
+    }
+    if (typeof wanted.confidence === "boolean") {
+      current.askConfidence = wanted.confidence;
+      markGroup("confidence-choice", wanted.confidence ? "on" : "off");
+    }
+    const picker = findElement("unit-picker");
+    if (wanted.unit && Array.from(picker.options).some(
+        function has(option) { return option.value === wanted.unit; })) {
+      picker.value = wanted.unit;
+    }
+    updateReadySummary();
   }
 
   /** Quick-pick buttons (5, 10, 25 ...) fill in their input box. */
@@ -249,7 +303,10 @@
   ["question-count-input", "minutes-input"].forEach(function watch(id) {
     findElement(id).addEventListener("input", updateReadySummary);
   });
-  findElement("unit-picker").addEventListener("change", updateReadySummary);
+  findElement("unit-picker").addEventListener("change", function onUnit() {
+    updateReadySummary();
+    notifyPracticeChanged("unit-picker");
+  });
 
   quiz.settings = {
     current,
@@ -259,5 +316,7 @@
     chooseKeepGoing,
     chooseQuickSession,
     updateReadySummary,
+    readChoices,
+    useChoices,
   };
 })((window.RecallQuiz = window.RecallQuiz || {}));

@@ -75,6 +75,28 @@
     quiz.settings.updateReadySummary();
     showWhereYouStand();
     showRecentResults();
+    showPracticeSummary();
+  }
+
+  /** One line under "What do you want to do?": the saved choices. */
+  function showPracticeSummary() {
+    const line = findElement("practice-summary");
+    const choices = quiz.settings.readChoices();
+    const parts = [
+      quiz.book.labels.unit + ": " +
+        (choices.unit === "all" ? quiz.book.labels.whole : choices.unit),
+      "Timer: " + (choices.timer ? choices.timer + "s" : "off"),
+      "Confidence check: " + (choices.confidence ? "on" : "off"),
+    ];
+    if (quiz.htrab && quiz.htrab.isOn && quiz.htrab.isOn()) {
+      parts.push("HTRAB: on");
+    }
+    line.textContent = "";
+    line.appendChild(createElement("span", null, parts.join(" · ")));
+    line.appendChild(createButton("Change in Settings", "link-button",
+      function openSettings() {
+        findElement("settings-button").click();
+      }));
   }
 
   // ---------------------------------------------------------- overview
@@ -160,6 +182,7 @@
     }
     panel.classList.remove("hidden");
     panel.appendChild(createElement("h2", null, "Your recent results"));
+    quiz.layout.makeFoldable(panel, "recent");
     results.forEach(function addResultRow(result) {
       panel.appendChild(createRecentResultRow(result));
     });
@@ -295,9 +318,12 @@
     panel.textContent = "";
     panel.appendChild(createElement("h2", null,
       view === "ideas" ? "Your ideas" : "Where you stand"));
-    quiz.layout.showStandFolded(panel);
+    quiz.layout.makeFoldable(panel, "stand");
+    panel.appendChild(createViewSwitch(view));
     const controls = createElement("div", "stand-controls");
-    controls.appendChild(createViewSwitch(view));
+    controls.appendChild(createElement("span", "stand-count",
+      countWithWord(quiz.book.unitIds.length,
+        labels.unit.toLowerCase(), labels.units)));
     controls.appendChild(quiz.layout.createExpandControls(panel));
     panel.appendChild(controls);
     if (view === "ideas" && !hasIdeas) {
@@ -623,9 +649,17 @@
     return bar;
   }
 
-  document.addEventListener("recallquiz:layout-applied", function redraw() {
+  function redrawLayout() {
     if (quiz.book.data) {
       showWhereYouStand();
+      showRecentResults();
+      showPracticeSummary();
+    }
+  }
+  document.addEventListener("recallquiz:layout-applied", redrawLayout);
+  document.addEventListener("recallquiz:practice-changed", function redo() {
+    if (quiz.book.data) {
+      showPracticeSummary();
     }
   });
 

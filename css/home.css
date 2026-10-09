@@ -57,50 +57,6 @@
   display: none;
 }
 
-.in-session .theme-button {
-  display: none;
-}
-
-/* ------------------------------------------------------------------ */
-/* Theme picker                                                        */
-/* ------------------------------------------------------------------ */
-
-.theme-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  font-size: 0.88rem;
-  font-weight: 600;
-  background: var(--color-card);
-  border: var(--border-width-strong) solid var(--color-border);
-  border-radius: 999px;
-}
-
-/* The little colour wheel on the Theme button */
-.theme-button i {
-  display: block;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: conic-gradient(
-    var(--color-pop-1),
-    var(--color-pop-4),
-    var(--color-pop-2),
-    var(--color-pop-3),
-    var(--color-pop-1)
-  );
-}
-
-#theme-panel h3 {
-  margin: 14px 0 8px;
-  font: 600 0.95rem var(--font-body);
-}
-
-#theme-panel h3:first-child {
-  margin-top: 0;
-}
-
 .theme-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
@@ -579,14 +535,46 @@ select {
 }
 
 /* ------------------------------------------------------------------ */
-/* Folding panels, expand/collapse all, home settings                  */
+/* Header tools: day streak and Settings button                        */
 /* ------------------------------------------------------------------ */
+
+.header-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 10px;
+}
+
+.settings-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  background: var(--color-card);
+  border: var(--border-width-strong) solid var(--color-border);
+  border-radius: 999px;
+}
+
+/* A little cog drawn with a dotted ring */
+.settings-button i {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border: 3px dotted currentColor;
+  border-radius: 50%;
+}
 
 .in-session .settings-button {
   display: none;
 }
 
-/* The heading of a foldable panel is a button */
+/* ------------------------------------------------------------------ */
+/* Folding panels, expand/collapse all                                 */
+/* ------------------------------------------------------------------ */
+
 .panel-toggle {
   display: flex;
   align-items: center;
@@ -618,41 +606,173 @@ select {
 }
 
 .panel.is-collapsed > :not(h2) {
-  display: none;
+  display: none !important;
 }
 
 .panel.is-collapsed > h2 {
   margin-bottom: 0;
 }
 
+/* A text-style button for small actions */
+.link-button {
+  padding: 4px 2px;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-pop-3);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+/* ------------------------------------------------------------------ */
+/* Where you stand: roomier switch and controls                        */
+/* ------------------------------------------------------------------ */
+
+#where-you-stand {
+  padding-top: 18px;
+}
+
+#where-you-stand .view-switch {
+  display: flex;
+  margin: 12px 0 14px;
+}
+
+#where-you-stand .view-switch button {
+  flex: 1;
+  padding: 11px 8px;
+  white-space: nowrap;
+}
+
 .stand-controls {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+}
+
+.stand-count {
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
 }
 
 .expand-controls {
   display: flex;
-  gap: 8px;
+  gap: 14px;
 }
 
-.expand-controls button {
-  padding: 6px 12px;
-  font-size: 0.85rem;
+#where-you-stand .unit-progress summary {
+  padding: 15px 2px;
 }
 
-#settings-panel h3 {
-  margin: 0 0 8px;
-  font: 600 0.95rem var(--font-body);
+#where-you-stand .unit-name b {
+  font-size: 1.02rem;
 }
 
-.settings-row {
+#where-you-stand .unit-name span {
+  margin-top: 3px;
+}
+
+/* ------------------------------------------------------------------ */
+/* What do you want to do?                                             */
+/* ------------------------------------------------------------------ */
+
+.practice-summary {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 14px;
   align-items: center;
   justify-content: space-between;
-  margin: 10px 0;
+  gap: 4px 12px;
+  margin: 2px 0 16px;
+  padding: 10px 12px;
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+  background: var(--color-page);
+  border-radius: var(--radius-small);
+}
+
+/* ------------------------------------------------------------------ */
+/* Settings screen                                                     */
+/* ------------------------------------------------------------------ */
+
+/* While Settings is open, the home screen steps aside */
+.in-settings #home-screen,
+.in-settings #where-you-stand,
+.in-settings #progress-file-panel,
+.in-settings .book-notes,
+.in-settings #load-error {
+  display: none;
+}
+
+.settings-section h2 {
+  margin-bottom: 4px;
+}
+
+.settings-note {
+  margin: 0 0 4px;
+}
+
+.setting-row {
+  display: grid;
+  gap: 8px;
+  padding: 14px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.settings-section h2 + .setting-row,
+.settings-section .settings-note + .setting-row {
+  border-top: 0;
+}
+
+.setting-label {
+  display: grid;
+  gap: 2px;
+}
+
+.setting-label b {
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.setting-label small {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+
+.setting-row .choice-group {
+  display: flex;
+  width: 100%;
+}
+
+.setting-row .choice-group button {
+  flex: 1 1 0;
+  min-height: 42px;
+}
+
+.setting-row select {
+  width: 100%;
+  min-height: 44px;
+}
+
+.settings-footer {
+  margin: 4px 4px 18px;
+  text-align: center;
+}
+
+#account-body .button-row {
+  margin-top: 10px;
+}
+
+@media (min-width: 640px) {
+  /* Wider screens: label on the left, control on the right */
+  .setting-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    align-items: center;
+    gap: 18px;
+  }
 }

@@ -77,7 +77,6 @@
     }
     findElement("home-screen").classList.add("hidden");
     findElement("where-you-stand").classList.add("hidden");
-    findElement("theme-panel").classList.add("hidden");
     // The Start button is now hidden but may still have keyboard focus,
     // which would swallow the first Enter. Let the page have it instead.
     document.activeElement.blur();

@@ -39,6 +39,7 @@
     loadFailed: false,
     pick: { level: "", stage: "", topic: "", sub: "" },
     panel: null,
+    switchRow: null,
   };
 
   // ------------------------------------------------------------ storage
@@ -294,12 +295,16 @@
     return field;
   }
 
-  /** @returns {HTMLElement} the On/Off switch and, when on, the picker */
-  function createPanel() {
-    const panel = createElement("div", "htrab-panel field");
-    panel.appendChild(createElement("span", null, "HTRAB method"));
+  /** @returns {HTMLElement} the On/Off switch, for the Settings screen */
+  function createSwitchRow() {
+    const row = createElement("div", "setting-row htrab-switch");
+    const label = createElement("div", "setting-label");
+    label.appendChild(createElement("b", null, "HTRAB method"));
+    label.appendChild(createElement("small", null,
+      "Practise the reading steps of How to Read a Book."));
+    row.appendChild(label);
     const group = createElement("div", "choice-group");
-    [["off", "Off"], ["on", "On: practise the reading steps"]].forEach(
+    [["off", "Off"], ["on", "On"]].forEach(
       function addButton(entry) {
         const button = createButton(entry[1], "", function toggle() {
           setOn(entry[0] === "on");
@@ -307,24 +312,27 @@
         button.dataset.value = entry[0];
         group.appendChild(button);
       });
-    panel.appendChild(group);
+    row.appendChild(group);
+    return row;
+  }
 
-    const body = createElement("div", "htrab-body hidden");
-    body.id = "htrab-body";
-    body.appendChild(createElement("p", "note",
+  /** @returns {HTMLElement} the reading-step picker, shown when on */
+  function createPanel() {
+    const panel = createElement("div", "htrab-panel hidden");
+    panel.id = "htrab-body";
+    panel.appendChild(createElement("p", "note",
       "Choose a reading step from How to Read a Book. The test then " +
       "holds only questions tagged with that step."));
-    body.appendChild(createPickerField("htrab-level", "Level", "level"));
-    body.appendChild(createPickerField("htrab-stage", "Stage", "stage"));
-    body.appendChild(createPickerField("htrab-topic", "Topic", "topic"));
-    body.appendChild(createPickerField("htrab-sub", "Subtopic", "sub"));
-    body.appendChild(createElement("p", "ready-summary htrab-count"))
+    panel.appendChild(createPickerField("htrab-level", "Level", "level"));
+    panel.appendChild(createPickerField("htrab-stage", "Stage", "stage"));
+    panel.appendChild(createPickerField("htrab-topic", "Topic", "topic"));
+    panel.appendChild(createPickerField("htrab-sub", "Subtopic", "sub"));
+    panel.appendChild(createElement("p", "ready-summary htrab-count"))
       .id = "htrab-count";
     const start = createButton("Start HTRAB test", "button primary",
       startTest);
     start.id = "htrab-start";
-    body.appendChild(start);
-    panel.appendChild(body);
+    panel.appendChild(start);
     return panel;
   }
 
@@ -332,9 +340,12 @@
    * Switch the method on or off and redraw the panel.
    * @param {boolean} isOn
    */
-  function setOn(isOn) {
+  function setOn(isOn, isFromAccount) {
     state.isOn = isOn;
     saveChoice(isOn);
+    if (!isFromAccount) {
+      document.dispatchEvent(new CustomEvent("recallquiz:practice-changed"));
+    }
     refreshPanel();
     if (isOn) {
       loadData().then(refreshPanel);
@@ -346,12 +357,12 @@
     if (!state.panel) {
       return;
     }
-    state.panel.querySelectorAll(".choice-group button").forEach(
+    state.switchRow.querySelectorAll(".choice-group button").forEach(
       function mark(button) {
         const isActive = (button.dataset.value === "on") === state.isOn;
         button.setAttribute("aria-pressed", String(isActive));
       });
-    const body = findElement("htrab-body");
+    const body = state.panel;
     body.classList.toggle("hidden", !state.isOn);
     if (state.isOn && state.loadFailed) {
       showLoadFailure(body);
@@ -374,7 +385,9 @@
   function installPanel() {
     if (state.panel) {
       state.panel.remove();
+      state.switchRow.remove();
       state.panel = null;
+      state.switchRow = null;
     }
     const hasTags = quiz.book.allQuestions().some(function tagged(q) {
       return Boolean(q.htrab);
@@ -385,8 +398,10 @@
       return;
     }
     state.panel = createPanel();
+    state.switchRow = createSwitchRow();
     const anchor = findElement("keep-going-block");
     anchor.parentNode.insertBefore(state.panel, anchor);
+    findElement("htrab-setting").appendChild(state.switchRow);
     state.isOn = readSavedChoice();
     refreshPanel();
     if (state.isOn) {
@@ -503,5 +518,12 @@
   document.addEventListener("recallquiz:question-shown", onQuestionShown);
   document.addEventListener("recallquiz:feedback-shown", onFeedbackShown);
 
-  quiz.htrab = { tagOf };
+  quiz.htrab = {
+    tagOf,
+    isOn: function isOn() { return state.isOn; },
+    /** Use the choice saved in the account (does not announce a change). */
+    useRemote: function useRemote(isOn) {
+      setOn(isOn, true);
+    },
+  };
 })((window.RecallQuiz = window.RecallQuiz || {}));

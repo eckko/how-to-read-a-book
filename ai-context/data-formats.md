@@ -188,10 +188,18 @@ and `unitSummaries`; per concept `question`, `core`, `htrab` and
 progress is still unchanged (format v2): a pretest only adds `pretested` and
 `pretestResult` to a question record; concept status is derived.
 
-## Home layout choices
+## Settings (home layout and practice choices)
 
-`localStorage` key `recall-quiz-home-layout` holds `{setup, stand, chapters, inner, at}`
-(`setup`/`stand`: "open" | "closed"; `chapters`: "next" | "open" | "closed";
-`inner`: "closed" | "open"; `at`: time of the last choice). In the account, the
-`_settings` document holds `layout: {s, w, c, i, a}` next to `theme`; the newest
-`a` wins. Code: `js/home-layout.js` (Settings panel, folding, Expand all).
+`localStorage` key `recall-quiz-home-layout` holds `{progress, recent, setup,
+stand, chapters, inner, timer, confidence, htrab, units, at}`:
+panels `progress`/`recent`/`setup`/`stand` are "open" | "closed"; `chapters`
+is "next" | "open" | "closed"; `inner` is "closed" | "open"; `timer` is
+0/15/30/60; `confidence` and `htrab` are booleans; `units` maps book id to the
+chapter picked; `at` is the time of the last change. In the account, the
+`_settings` document holds `layout: {p, r, s, w, c, i, t, f, h, u, a}` next to
+`theme`; the newest `a` wins. Code: `js/home-layout.js` (Settings screen,
+folding, Expand all), `js/session-settings.js` (`readChoices`/`useChoices`),
+`htrab/htrab.js` (`quiz.htrab.isOn`/`useRemote`). The HTRAB On/Off switch is
+shown on the Settings screen; its level/stage picker stays on the home screen.
+The sign-in bar shows on the home screen only when the reader must act
+(signed out, error); the Account section of Settings always shows.

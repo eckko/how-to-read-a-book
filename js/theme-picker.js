@@ -204,9 +204,7 @@
   /** Build the tiles and connect the buttons. Runs once the page loads. */
   function setUpPicker() {
     const tileArea = document.getElementById("theme-tiles");
-    const panel = document.getElementById("theme-panel");
-    const themeButton = document.getElementById("theme-button");
-    if (!tileArea || !themeButton) {
+    if (!tileArea) {
       return;
     }
     themes.forEach(function addTile(theme) {
@@ -219,10 +217,6 @@
           applyChoiceFromReader();
         });
       });
-    themeButton.addEventListener("click", function togglePanel() {
-      const isOpen = !panel.classList.toggle("hidden");
-      themeButton.setAttribute("aria-expanded", String(isOpen));
-    });
     if (darkModeQuery) {
       listenForSystemModeChanges(function followSystem() {
         if (choice.mode === "system") {

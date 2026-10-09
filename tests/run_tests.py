@@ -146,7 +146,7 @@ def start_session(page, confidence=False, timed=False):
         page.click("#custom-practice summary")
     page.click("#question-filter-choice button[data-value='all']")
     if not confidence:
-        page.click("#confidence-choice button[data-value='off']")
+        in_settings(page, "#confidence-choice button[data-value='off']")
     page.fill("#question-count-input", "")
     if timed:
         page.click("#session-length-choice button[data-value='time']")
@@ -286,7 +286,7 @@ def test_question_timer_runs_out(browser):
     question = next(q for q in BOOK["questions"] if q["kind"] == "mcq")
     page = open_page(browser, questions=[question])
     page.clock.install()
-    page.click("#question-timer-choice button[data-value='15']")
+    in_settings(page, "#question-timer-choice button[data-value='15']")
     start_session(page)
     page.clock.run_for(16000)
     verdict = page.inner_text("#question-card .verdict")
@@ -464,7 +464,7 @@ def test_themes(browser):
     theme_folders = [folder for folder in (SITE_FOLDER / "themes").iterdir()
                      if (folder / "theme.json").exists()]
     page = open_page(browser)
-    page.click("#theme-button")
+    page.click("#settings-button")
     tile_count = page.locator(".theme-tile").count()
     check("every theme folder has a tile in the picker",
           tile_count == len(theme_folders),
@@ -480,6 +480,14 @@ def test_themes(browser):
     root = page.evaluate("() => document.documentElement.dataset.theme")
     check("the choice is remembered after a reload", root == "lego")
     page.close()
+
+
+def in_settings(page, selector):
+    """Click a control that lives on the Settings screen, then go back."""
+    if not page.is_visible("#settings-screen"):
+        page.click("#settings-button")
+    page.click(selector)
+    page.click("#settings-button")
 
 
 def test_home_views(browser):
@@ -583,7 +591,7 @@ def test_theme_follows_the_account(browser):
     page.close()
 
     page = open_synced_page(browser)
-    page.click("#theme-button")
+    page.click("#settings-button")
     page.click(".theme-tile[data-theme-id='lego']")
     page.wait_for_function(
         "sessionStorage.getItem('recall-quiz-example-store:example-user/"
@@ -607,68 +615,114 @@ def test_theme_follows_the_account(browser):
 
 
 def test_home_layout(browser):
-    """Fold panels, expand/collapse all, and the saved starting layout."""
-    print("Home layout")
+    """Fold panels, expand/collapse all, and the saved settings."""
+    print("Home layout and settings")
     page = open_page(browser, view=None)
-    check("the setup panel starts open",
-          page.is_visible("#session-setup .fields"))
-    page.click("#session-setup .panel-toggle")
-    check("clicking its heading folds it",
-          not page.is_visible("#session-setup .fields"))
-    page.click("#session-setup .panel-toggle")
-    check("clicking again opens it", page.is_visible("#session-setup .fields"))
-    page.click("#where-you-stand .panel-toggle")
-    check("the progress panel folds",
-          not page.is_visible("#where-you-stand .unit-progress"))
-    page.click("#where-you-stand .panel-toggle")
+    page.evaluate("""() => {
+        RecallQuiz.progress.saved.recentResults.push({
+          verdict: "pass", finishedAt: Date.now(), scopeName: "Whole book",
+          percent: 60, marks: 6, questionCount: 10});
+        RecallQuiz.homeScreen.refresh(); }""")
+    for panel, body in [("#session-setup", "#keep-going-block"),
+                        ("#progress-panel", ".progress-overview"),
+                        ("#recent-results", ".history-row"),
+                        ("#where-you-stand", ".view-switch")]:
+        check(panel + " starts open", page.is_visible(panel + " " + body))
+        page.click(panel + " .panel-toggle")
+        check(panel + " folds when its heading is clicked",
+              not page.is_visible(panel + " " + body))
+        page.click(panel + " .panel-toggle")
+        check(panel + " opens again", page.is_visible(panel + " " + body))
     page.click("#where-you-stand .expand-controls button:text('Expand all')")
     closed = page.locator("#where-you-stand details:not([open])").count()
     check("Expand all opens every chapter, topic and idea", closed == 0,
           str(closed))
-    page.click("#where-you-stand .expand-controls button:text('Collapse all')")
+    page.click(
+        "#where-you-stand .expand-controls button:text('Collapse all')")
     opened = page.locator("#where-you-stand details[open]").count()
     check("Collapse all closes them all", opened == 0, str(opened))
 
+    check("the practice choices are not on the home screen",
+          not page.is_visible("#question-timer-choice")
+          and page.is_visible("#practice-summary"))
     page.click("#settings-button")
-    page.click("[data-layout='setup'] [data-value='closed']")
-    check("choosing Folded in settings folds the setup panel now",
-          not page.is_visible("#session-setup .fields"))
-    page.click("[data-layout='chapters'] [data-value='open']")
-    page.click("[data-layout='inner'] [data-value='open']")
+    check("Settings opens as a screen of its own",
+          page.is_visible("#settings-screen")
+          and not page.is_visible("#where-you-stand"))
+    for section in ["account-section", "appearance-section",
+                    "practice-section", "home-section"]:
+        if section != "account-section":
+            check(section + " is on the Settings screen",
+                  page.is_visible("#" + section))
+    check("Theme moved into Settings",
+          page.is_visible("#theme-tiles") and
+          page.locator("#theme-button").count() == 0)
+    page.click("#question-timer-choice button[data-value='30']")
+    page.click("#confidence-choice button[data-value='off']")
+    for name, value in [("setup", "closed"), ("progress", "closed"),
+                        ("recent", "closed"), ("chapters", "open"),
+                        ("inner", "open")]:
+        page.click(f"[data-layout='{name}'] [data-value='{value}']")
+    page.click("#settings-button")
+    summary = page.inner_text("#practice-summary")
+    check("the home line shows the saved practice choices",
+          "Timer: 30s" in summary and "Confidence check: off" in summary,
+          summary)
+    check("panels follow the Home screen settings",
+          not page.is_visible("#session-setup #keep-going-block")
+          and not page.is_visible("#progress-panel .progress-overview")
+          and not page.is_visible("#recent-results .history-row"))
     closed = page.locator("#where-you-stand details:not([open])").count()
     check("All open plus Open starts everything open", closed == 0,
           str(closed))
     page.reload()
     page.wait_for_selector("#where-you-stand .unit-progress")
-    check("the starting layout is remembered after a reload",
-          not page.is_visible("#session-setup .fields")
+    page.evaluate("""() => {
+        RecallQuiz.progress.saved.recentResults.push({
+          verdict: "pass", finishedAt: Date.now(), scopeName: "Whole book",
+          percent: 60, marks: 6, questionCount: 10});
+        RecallQuiz.homeScreen.refresh(); }""")
+    check("everything is remembered after a reload",
+          not page.is_visible("#session-setup #keep-going-block")
+          and "Timer: 30s" in page.inner_text("#practice-summary")
           and page.locator("#where-you-stand details:not([open])").count()
-          == 0)
+          == 0 and not page.is_visible("#recent-results .history-row"))
     check("no errors", not page.errors, "; ".join(page.errors))
     page.close()
 
     page = open_synced_page(browser)
+    page.wait_for_selector("#account-body .button-row button", state="attached")
+    check("the home screen shows no bar once signed in",
+          not page.is_visible("#cloud-sync-bar"))
     page.click("#settings-button")
+    check("the account is at the top of Settings, with Sign out",
+          page.is_visible("#account-section")
+          and page.is_visible("#account-body button:text('Sign out')")
+          and page.locator(".settings-section").first.get_attribute("id")
+          == "account-section")
     page.click("[data-layout='stand'] [data-value='closed']")
+    page.click("#question-timer-choice button[data-value='15']")
     page.wait_for_function(
         "(sessionStorage.getItem('recall-quiz-example-store:example-user/"
-        "_settings') || '').includes('layout')", timeout=8000)
+        "_settings') || '').includes('\"t\":15')", timeout=8000)
     saved = page.evaluate(
         "() => JSON.parse(sessionStorage.getItem("
         "'recall-quiz-example-store:example-user/_settings')).layout")
-    check("choosing a layout saves it to the account",
-          saved and saved["w"] == "closed", str(saved))
+    check("settings are saved to the account",
+          saved and saved["w"] == "closed" and saved["t"] == 15
+          and saved["f"] is True, str(saved))
     page.close()
 
     page = open_synced_page(browser, account_layout={
         "s": "closed", "w": "open", "c": "closed", "i": "open",
-        "a": 2000000000000})
+        "p": "open", "r": "open", "t": 60, "f": False, "h": False,
+        "u": {}, "a": 2000000000000})
     page.wait_for_function(
-        "!document.querySelector('#session-setup .fields')"
-        ".getClientRects().length", timeout=8000)
-    check("a layout saved in the account is used on this device",
-          page.get_attribute("[data-layout='setup'] [data-value='closed']",
-                             "aria-pressed") == "true")
+        "RecallQuiz.settings.readChoices().timer === 60", timeout=8000)
+    check("settings saved in the account are used on this device",
+          not page.is_visible("#session-setup #keep-going-block")
+          and not page.evaluate(
+              "() => RecallQuiz.settings.readChoices().confidence"))
     page.close()
 
 
@@ -729,7 +783,7 @@ def test_keep_going_teaches_the_next_idea(browser):
           not page.is_visible("#cloud-sync-bar"))
     summary = page.inner_text("#keep-going-summary")
     check("the button says what comes next", "learn" in summary, summary)
-    page.click("#confidence-choice button[data-value='off']")
+    in_settings(page, "#confidence-choice button[data-value='off']")
     page.click("#keep-going-button")
     log = []
     seen = play_learn_session(page, log=log)
@@ -819,7 +873,7 @@ def test_second_keep_going_reviews_first(browser):
     and then teaches the next idea."""
     print("Second Keep me going")
     page = open_page(browser)
-    page.click("#confidence-choice button[data-value='off']")
+    in_settings(page, "#confidence-choice button[data-value='off']")
     page.click("#keep-going-button")
     play_learn_session(page, answer_wrongly=True)
     page.click("text=Back to start")
@@ -962,7 +1016,7 @@ def test_new_bank_fields_show(browser):
           in page.inner_text("#where-you-stand"))
     check("the streak shows days practised",
           "practised" in page.inner_text("#day-streak"))
-    page.click("#confidence-choice button[data-value='off']")
+    in_settings(page, "#confidence-choice button[data-value='off']")
     page.click("#keep-going-button")
     check("the card step starts with the reading question",
           page.is_visible("#question-card"))
@@ -987,7 +1041,7 @@ def test_results_are_gentle(browser):
     average with a noise reminder after two sessions."""
     print("Results wording")
     page = open_page(browser)
-    page.click("#confidence-choice button[data-value='off']")
+    in_settings(page, "#confidence-choice button[data-value='off']")
     page.click("#keep-going-button")
     play_learn_session(page, answer_wrongly=True)
     text = page.inner_text(".result")
@@ -1024,7 +1078,7 @@ def test_weak_part_and_easy_ending(browser):
     it; a session ends on an easy review."""
     print("Weak part and easy ending")
     page = open_page(browser)
-    page.click("#confidence-choice button[data-value='off']")
+    in_settings(page, "#confidence-choice button[data-value='off']")
     page.click("#keep-going-button")
     play_learn_session(page, answer_wrongly=True)
     page.click("text=Back to start")
@@ -1061,7 +1115,7 @@ def test_five_minute_session(browser):
     print("5-minute session")
     page = open_page(browser)
     core = {c["id"] for c in BOOK["concepts"] if c.get("core")}
-    page.click("#confidence-choice button[data-value='off']")
+    in_settings(page, "#confidence-choice button[data-value='off']")
     page.click("#quick-session-button")
     seen = play_learn_session(page)
     ideas = {step["concept"] for step in seen}
@@ -1082,13 +1136,13 @@ def test_htrab_overlay(browser):
     """The HTRAB switch, picker, filtered test, chips and advice."""
     print("HTRAB overlay")
     page = open_page(browser)
-    check("a bank without tags shows no HTRAB panel",
-          page.locator(".htrab-panel").count() == 0)
+    check("a bank without tags shows no HTRAB switch",
+          page.locator(".htrab-switch").count() == 0)
     page.close()
 
     page = open_page(browser, bank="how-to-read-a-book")
-    check("a tagged bank shows the HTRAB switch",
-          page.is_visible(".htrab-panel"))
+    check("a tagged bank has an HTRAB switch in Settings",
+          page.locator(".htrab-switch").count() == 1)
     check("the picker is hidden while the method is off",
           not page.is_visible("#htrab-level"))
     page.click("#keep-going-button")
@@ -1097,7 +1151,7 @@ def test_htrab_overlay(browser):
           page.locator(".htrab-chip").count() == 0)
     page.click("text=End session")
 
-    page.click(".htrab-panel button[data-value='on']")
+    in_settings(page, ".htrab-switch button[data-value='on']")
     page.wait_for_selector("#htrab-level")
     page.wait_for_function(
         "document.querySelectorAll('#htrab-level option').length > 1")
@@ -1125,7 +1179,7 @@ def test_htrab_overlay(browser):
                    and q["role"] != "pretest")
     check("the count matches the tagged questions",
           count.startswith(str(expected)), f"{count} vs {expected}")
-    page.click("#confidence-choice button[data-value='off']")
+    in_settings(page, "#confidence-choice button[data-value='off']")
     page.click("#htrab-start")
     tag = ("analytical/determining-an-authors-message/"
            "finding-the-propositions")
@@ -1144,19 +1198,19 @@ def test_htrab_overlay(browser):
     check("a missed question opens the advice",
           page.eval_on_selector(".htrab-advice", "d => d.open"))
     page.click("text=End session")
-    page.click(".htrab-panel button[data-value='off']")
+    in_settings(page, ".htrab-switch button[data-value='off']")
     check("switching off hides the picker", not page.is_visible("#htrab-level"))
     page.reload()
     page.wait_for_selector("#book-title:not(:text-is('Recall Quiz'))")
     check("it stays off after a reload",
           not page.is_visible("#htrab-level"))
-    page.click(".htrab-panel button[data-value='on']")
+    in_settings(page, ".htrab-switch button[data-value='on']")
     page.reload()
     page.wait_for_selector("#book-title:not(:text-is('Recall Quiz'))")
     page.wait_for_selector("#htrab-level")
     check("being on is remembered after a reload",
           page.is_visible("#htrab-level"))
-    page.click("#confidence-choice button[data-value='off']")
+    in_settings(page, "#confidence-choice button[data-value='off']")
     page.click("#keep-going-button")
     for _ in range(8):
         step = current_step(page)
@@ -1179,8 +1233,8 @@ def test_htrab_is_removable(browser):
     page = open_page(browser, block="**/htrab/**")
     check("the quiz still opens", page.is_visible("#keep-going-button"))
     check("no HTRAB panel without the module",
-          page.locator(".htrab-panel").count() == 0)
-    page.click("#confidence-choice button[data-value='off']")
+          page.locator(".htrab-switch").count() == 0)
+    in_settings(page, "#confidence-choice button[data-value='off']")
     page.click("#keep-going-button")
     play_learn_session(page)
     check("a whole session works", page.is_visible(".result"))
@@ -1190,7 +1244,7 @@ def test_htrab_is_removable(browser):
                      block="**/htrab/**")
     check("a tagged bank still plays without the module",
           page.is_visible("#keep-going-button"))
-    check("no panel appears", page.locator(".htrab-panel").count() == 0)
+    check("no switch appears", page.locator(".htrab-switch").count() == 0)
     page.close()
 
 

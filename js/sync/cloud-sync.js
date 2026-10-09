@@ -472,17 +472,37 @@
    */
   function showStatus(status) {
     sync.status = status;
-    const bar = quiz.helpers.findElement("cloud-sync-bar");
-    bar.textContent = "";
-    bar.classList.remove("hidden");
-    bar.dataset.status = status;
-    bar.appendChild(quiz.helpers.createElement("p", "cloud-sync-text",
+    const helpers = quiz.helpers;
+    // The Settings screen always shows the account; the home screen only
+    // shows a bar when the reader has something to do (sign in, retry).
+    const needsAttention = ["file", "signed-out", "error"]
+      .indexOf(status) >= 0;
+    fillAccount(helpers.findElement("cloud-sync-bar"), status,
+      needsAttention);
+    const section = helpers.findElement("account-section");
+    if (section) {
+      section.classList.remove("hidden");
+      fillAccount(helpers.findElement("account-body"), status, true);
+    }
+  }
+
+  /**
+   * Fill one place (the home bar or the Settings account section).
+   * @param {HTMLElement} place
+   * @param {string} status
+   * @param {boolean} isShown  false hides the place
+   */
+  function fillAccount(place, status, isShown) {
+    place.textContent = "";
+    place.classList.toggle("hidden", !isShown);
+    place.dataset.status = status;
+    place.appendChild(quiz.helpers.createElement("p", "cloud-sync-text",
       statusText(status)));
     const buttons = quiz.helpers.createElement("div", "button-row");
     statusButtons(status).forEach(function addButton(button) {
       buttons.appendChild(button);
     });
-    bar.appendChild(buttons);
+    place.appendChild(buttons);
   }
 
   /** @returns {string} what to tell the reader in a state */

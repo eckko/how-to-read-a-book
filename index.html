@@ -9,9 +9,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>How to Read a Book</title>
-  <link rel="icon" href="images/favicon.png" type="image/png">
-  <link rel="apple-touch-icon" sizes="180x180" href="images/favicon.png">
+  <title>Learn and Recall Quiz</title>
 
   <!-- Styles. Order matters: later files win when rules clash. -->
   <link rel="stylesheet" href="css/base.css">
@@ -46,14 +44,13 @@
     <div class="title-block">
       <h1 id="book-title">Recall Quiz</h1>
     </div>
-    <button type="button" class="theme-button" id="theme-button"
-            aria-expanded="false" aria-controls="theme-panel">
-      <i></i>Theme
-    </button>
-    <button type="button" class="theme-button settings-button"
-            id="settings-button" aria-expanded="false"
-            aria-controls="settings-panel">Settings</button>
-    <div class="day-streak" id="day-streak"></div>
+    <div class="header-tools">
+      <div class="day-streak" id="day-streak"></div>
+      <button type="button" class="settings-button" id="settings-button"
+              aria-expanded="false" aria-controls="settings-screen">
+        <i aria-hidden="true"></i><span>Settings</span>
+      </button>
+    </div>
   </header>
 
   <!-- What the book is about, under the header. Hidden in a session. -->
@@ -62,53 +59,131 @@
     <p class="book-blurb hidden" id="book-blurb"></p>
   </div>
 
-  <!-- Theme picker. The tiles are added by js/theme-picker.js. -->
-  <section class="panel hidden" id="theme-panel">
-    <h3>Mode</h3>
-    <div class="choice-group" id="theme-mode-choice">
-      <button type="button" data-theme-mode="light">Light</button>
-      <button type="button" data-theme-mode="dark">Dark</button>
-      <button type="button" data-theme-mode="system">System</button>
-    </div>
-    <h3>Theme</h3>
-    <div class="theme-tiles" id="theme-tiles"></div>
-  </section>
+  <!-- ========================== Settings ========================== -->
+  <!-- A screen of its own: opens over the home screen (Settings button).
+       Wired by js/home-layout.js. -->
+  <section class="settings-screen hidden" id="settings-screen">
 
-  <!-- Home screen settings. Wired by js/home-layout.js. -->
-  <section class="panel hidden" id="settings-panel">
-    <h3>When the home screen opens</h3>
-    <div class="settings-row">
-      <span>"What do you want to do?"</span>
-      <div class="choice-group" data-layout="setup">
-        <button type="button" data-value="open">Open</button>
-        <button type="button" data-value="closed">Folded</button>
+    <!-- Filled by js/sync/cloud-sync.js; stays hidden without sync. -->
+    <div class="panel settings-section hidden" id="account-section"
+         aria-live="polite">
+      <h2>Account</h2>
+      <div id="account-body"></div>
+    </div>
+
+    <div class="panel settings-section" id="appearance-section">
+      <h2>Appearance</h2>
+      <div class="setting-row">
+        <div class="setting-label"><b>Mode</b></div>
+        <div class="choice-group" id="theme-mode-choice">
+          <button type="button" data-theme-mode="light">Light</button>
+          <button type="button" data-theme-mode="dark">Dark</button>
+          <button type="button" data-theme-mode="system">System</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label"><b>Theme</b></div>
+        <div class="theme-tiles" id="theme-tiles"></div>
       </div>
     </div>
-    <div class="settings-row">
-      <span>"Where you stand" / "Your ideas"</span>
-      <div class="choice-group" data-layout="stand">
-        <button type="button" data-value="open">Open</button>
-        <button type="button" data-value="closed">Folded</button>
+
+    <div class="panel settings-section" id="practice-section">
+      <h2>Practice</h2>
+      <label class="setting-row">
+        <div class="setting-label">
+          <b id="unit-picker-label">Chapter</b>
+          <small>Where "Keep me going" and the 5-minute session look.</small>
+        </div>
+        <select id="unit-picker"></select>
+      </label>
+      <div class="setting-row">
+        <div class="setting-label">
+          <b>Timer per question</b>
+          <small>Optional.</small>
+        </div>
+        <div class="choice-group" id="question-timer-choice">
+          <button type="button" data-value="0"
+                  aria-pressed="true">Off</button>
+          <button type="button" data-value="15"
+                  aria-pressed="false">15s</button>
+          <button type="button" data-value="30"
+                  aria-pressed="false">30s</button>
+          <button type="button" data-value="60"
+                  aria-pressed="false">60s</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">
+          <b>Confidence check</b>
+          <small>Ask how sure you are before each answer.</small>
+        </div>
+        <div class="choice-group" id="confidence-choice">
+          <button type="button" data-value="off"
+                  aria-pressed="false">Off</button>
+          <button type="button" data-value="on"
+                  aria-pressed="true">On</button>
+        </div>
+      </div>
+      <!-- HTRAB switch: added by htrab/htrab.js when the book has tags -->
+      <div id="htrab-setting"></div>
+    </div>
+
+    <div class="panel settings-section" id="home-section">
+      <h2>Home screen</h2>
+      <p class="note settings-note">
+        How each part looks when the home screen opens. Folding things by
+        hand never changes these.
+      </p>
+      <div class="setting-row">
+        <div class="setting-label"><b>Your progress</b>
+          <small>The ring and today's summary.</small></div>
+        <div class="choice-group" data-layout="progress">
+          <button type="button" data-value="open">Open</button>
+          <button type="button" data-value="closed">Folded</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label"><b>Your recent results</b></div>
+        <div class="choice-group" data-layout="recent">
+          <button type="button" data-value="open">Open</button>
+          <button type="button" data-value="closed">Folded</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label"><b>What do you want to do?</b></div>
+        <div class="choice-group" data-layout="setup">
+          <button type="button" data-value="open">Open</button>
+          <button type="button" data-value="closed">Folded</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label"><b>Where you stand</b>
+          <small>Also "Your ideas".</small></div>
+        <div class="choice-group" data-layout="stand">
+          <button type="button" data-value="open">Open</button>
+          <button type="button" data-value="closed">Folded</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label"><b>Chapters</b></div>
+        <div class="choice-group" data-layout="chapters">
+          <button type="button" data-value="next">Next one open</button>
+          <button type="button" data-value="open">All open</button>
+          <button type="button" data-value="closed">All closed</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label"><b>Topics and ideas</b></div>
+        <div class="choice-group" data-layout="inner">
+          <button type="button" data-value="closed">Closed</button>
+          <button type="button" data-value="open">Open</button>
+        </div>
       </div>
     </div>
-    <div class="settings-row">
-      <span>Chapters</span>
-      <div class="choice-group" data-layout="chapters">
-        <button type="button" data-value="next">Next one open</button>
-        <button type="button" data-value="open">All open</button>
-        <button type="button" data-value="closed">All closed</button>
-      </div>
-    </div>
-    <div class="settings-row">
-      <span>Topics and ideas</span>
-      <div class="choice-group" data-layout="inner">
-        <button type="button" data-value="closed">Closed</button>
-        <button type="button" data-value="open">Open</button>
-      </div>
-    </div>
-    <p class="note">
-      Saved at once. When you are signed in, every device you use opens
-      the same way. Folding things by hand never changes these choices.
+
+    <p class="note settings-footer">
+      Saved at once. When you are signed in, every device you use gets the
+      same settings.
     </p>
   </section>
 
@@ -121,7 +196,8 @@
 
     <div class="panel recent-results hidden" id="recent-results"></div>
 
-    <div class="panel">
+    <div class="panel" id="progress-panel">
+      <h2>Your progress</h2>
       <div class="progress-overview">
         <svg class="progress-ring" viewBox="0 0 100 100" aria-hidden="true">
           <defs>
@@ -149,38 +225,7 @@
 
     <div class="panel" id="session-setup">
       <h2>What do you want to do?</h2>
-      <div class="fields">
-
-        <label class="field">
-          <span id="unit-picker-label">Chapter</span>
-          <select id="unit-picker"></select>
-        </label>
-
-        <div class="field">
-          <span>Timer per question (optional)</span>
-          <div class="choice-group" id="question-timer-choice">
-            <button type="button" data-value="0"
-                    aria-pressed="true">Off</button>
-            <button type="button" data-value="15"
-                    aria-pressed="false">15s</button>
-            <button type="button" data-value="30"
-                    aria-pressed="false">30s</button>
-            <button type="button" data-value="60"
-                    aria-pressed="false">60s</button>
-          </div>
-        </div>
-
-        <div class="field">
-          <span>Confidence check</span>
-          <div class="choice-group" id="confidence-choice">
-            <button type="button" data-value="off"
-                    aria-pressed="false">Off</button>
-            <button type="button" data-value="on"
-                    aria-pressed="true">Ask how sure I am</button>
-          </div>
-        </div>
-
-      </div>
+      <p class="practice-summary" id="practice-summary"></p>
 
       <!-- Books with ideas: one button that picks what comes next.
            Hidden for books without ideas. -->
@@ -297,7 +342,7 @@
   <!-- ======================= Where you stand ====================== -->
   <section class="panel" id="where-you-stand"></section>
 
-  <section class="panel">
+  <section class="panel" id="progress-file-panel">
     <h2>Your progress file</h2>
     <div class="button-row">
       <button class="button" id="download-progress-button"
