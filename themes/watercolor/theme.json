@@ -1,5 +1,6 @@
 {
   "name": "Watercolor",
+  "group": "Playful",
   "fonts": {
     "body": "\"Nunito\",system-ui,sans-serif",
     "headings": "\"Caveat\",\"Nunito\",cursive"

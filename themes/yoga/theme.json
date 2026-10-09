@@ -1,5 +1,6 @@
 {
   "name": "Yoga",
+  "group": "Wellbeing & culture",
   "fonts": {
     "body": "\"Cormorant Garamond\",\"Nunito\",Georgia,serif",
     "headings": "\"Nunito\",system-ui,sans-serif"

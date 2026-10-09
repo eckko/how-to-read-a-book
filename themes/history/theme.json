@@ -1,5 +1,6 @@
 {
   "name": "Indian History",
+  "group": "Subjects",
   "fonts": {
     "body": "\"Cormorant Garamond\",\"Georgia\",serif",
     "headings": "\"Cormorant Garamond\",\"Georgia\",serif"

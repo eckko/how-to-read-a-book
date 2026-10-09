@@ -1,5 +1,6 @@
 {
   "name": "Anime",
+  "group": "Playful",
   "fonts": {
     "body": "\"M PLUS Rounded 1c\",\"Nunito\",system-ui,sans-serif",
     "headings": "\"M PLUS Rounded 1c\",\"Nunito\",system-ui,sans-serif"

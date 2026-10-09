@@ -4,35 +4,37 @@
     python3 tools/pack_template.py pack BUNDLE_FILE
     python3 tools/pack_template.py unpack BUNDLE_FILE TARGET_FOLDER
 
-The bundle is how the /quiz-book skill stores this template in a
-claude.ai project: one plain-text file with a line
-"@@@ FILE <path> @@@" before each file and "@@@ END @@@" at the end.
+The bundle is how the /quiz-htrab skill stores this template in a
+claude.ai project: a gzip-compressed tar archive written as base64 text
+(76 characters a line), so the whole site fits in one small text file.
+Unpacking needs only this script, or `base64 -d FILE | tar xz`.
 
-Left out: questions.json (each book brings its own) and the generated
-theme files, which `python3 tools/build_themes.py` rebuilds after
-unpacking.
+Left out: questions.json (each book brings its own), the generated
+theme files (`python3 tools/build_themes.py` rebuilds them after
+unpacking), the working folder and caches.
 """
 
-import re
+import base64
+import io
 import sys
+import tarfile
+import textwrap
 from pathlib import Path
 
 SITE_FOLDER = Path(__file__).resolve().parent.parent
 LEFT_OUT = {"questions.json", "css/themes.css", "js/themes-list.js"}
 LEFT_OUT_FOLDERS = {"__pycache__", ".git", "work"}
-FILE_LINE = "@@@ FILE {} @@@\n"
-END_LINE = "@@@ END @@@\n"
+TOP_FOLDER = "htrab-quiz"
 
 
 def files_to_pack():
     """Relative paths of every template file, sorted."""
     paths = []
     for path in sorted(SITE_FOLDER.rglob("*")):
-        relative = path.relative_to(SITE_FOLDER).as_posix()
-        if path.is_dir() or relative in LEFT_OUT or \
-                LEFT_OUT_FOLDERS & set(path.relative_to(SITE_FOLDER).parts):
+        relative = path.relative_to(SITE_FOLDER)
+        if not path.is_file() or relative.as_posix() in LEFT_OUT:
             continue
-        if path.suffix in (".zip", ".pyc"):
+        if LEFT_OUT_FOLDERS & set(relative.parts):
             continue
         paths.append(relative)
     return paths
@@ -40,36 +42,44 @@ def files_to_pack():
 
 def pack(bundle_file):
     """Write every template file into the bundle."""
-    pieces = []
-    for relative in files_to_pack():
-        text = (SITE_FOLDER / relative).read_text()
-        pieces.append(FILE_LINE.format(relative) + text + "\n")
-    Path(bundle_file).write_text("".join(pieces) + END_LINE)
-    print(f"Packed {len(pieces)} files into {bundle_file}")
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for relative in files_to_pack():
+            archive.add(SITE_FOLDER / relative,
+                        arcname=f"{TOP_FOLDER}/{relative.as_posix()}")
+    text = textwrap.fill(base64.b64encode(buffer.getvalue()).decode(), 76)
+    Path(bundle_file).write_text(text + "\n")
+    print(f"Packed {len(files_to_pack())} files into {bundle_file}")
 
 
 def unpack(bundle_file, target_folder):
-    """Recreate the files from a bundle."""
-    bundle = Path(bundle_file).read_text()
-    pattern = r"^@@@ FILE (.+?) @@@\n(.*?)(?=^@@@ (?:FILE|END) )"
-    count = 0
-    for relative, body in re.findall(pattern, bundle, re.S | re.M):
-        target = Path(target_folder) / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(body[:-1])
-        count += 1
-    print(f"Unpacked {count} files into {target_folder}. "
-          "Now run: python3 tools/build_themes.py")
+    """Write the bundle's files into target_folder."""
+    data = base64.b64decode(Path(bundle_file).read_text())
+    target = Path(target_folder).resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
+        for member in archive.getmembers():
+            if not member.isfile():
+                continue
+            relative = Path(member.name).relative_to(TOP_FOLDER)
+            destination = (target / relative).resolve()
+            if target not in destination.parents:
+                raise SystemExit(f"Unsafe path in bundle: {member.name}")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(archive.extractfile(member).read())
+    print(f"Unpacked into {target}")
 
 
 def main():
-    """Read the command line."""
-    if len(sys.argv) == 3 and sys.argv[1] == "pack":
-        pack(sys.argv[2])
-    elif len(sys.argv) == 4 and sys.argv[1] == "unpack":
-        unpack(sys.argv[2], sys.argv[3])
+    """Read the command line and pack or unpack."""
+    arguments = sys.argv[1:]
+    if len(arguments) == 2 and arguments[0] == "pack":
+        pack(arguments[1])
+    elif len(arguments) == 3 and arguments[0] == "unpack":
+        unpack(arguments[1], arguments[2])
     else:
-        raise SystemExit(__doc__)
+        print(__doc__)
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":

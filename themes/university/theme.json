@@ -1,5 +1,6 @@
 {
   "name": "University",
+  "group": "Subjects",
   "fonts": {
     "body": "\"EB Garamond\",Georgia,serif",
     "headings": "\"EB Garamond\",Georgia,serif"

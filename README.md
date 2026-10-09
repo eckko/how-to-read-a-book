@@ -2,11 +2,8 @@
 
 A practice page for one book. It asks you questions chapter by chapter,
 brings back the ones you miss sooner (spaced repetition), shows where your
-gaps are, and keeps your progress in your browser. Readers can also sign
-in (Google, through Firebase) to keep their progress across devices; this
-is optional and can be switched off or moved to another database (see
-[js/sync/README.md](js/sync/README.md)). It is plain HTML, CSS and
-JavaScript: no framework, no build step, nothing to install to use it.
+gaps are, and keeps your progress in your browser. It is plain HTML, CSS
+and JavaScript: no framework, no build step, nothing to install to use it.
 
 - [Try it on your computer](#try-it-on-your-computer)
 - [Put it online with GitHub Pages](#put-it-online-with-github-pages)
@@ -24,6 +21,51 @@ AI agents: read [`AGENTS.md`](AGENTS.md) and the
 [`ai-context/`](ai-context/) folder first.
 
 ---
+
+## Teaching mode (Learn)
+
+This template can teach new material, not only test recall. A bank that
+has a `concepts` list can be studied in any order:
+
+- **Keep me going**: one button that picks what comes next: due reviews
+  first, then the next idea to teach.
+- **Teach me** (on any idea): an unscored warm-up guess, a short concept
+  card, then a ladder of questions (warm-up, extend, apply, transfer
+  ...). Every answer explains why each option is right or wrong.
+- **Test me** (on any idea): straight to the ladder, no card.
+- **5-minute session**: the same, with core ideas only and fewer reviews.
+- **Custom practice**: the usual spaced-repetition practice with
+  filters, length and timer.
+
+Version M3 adds: a "Read the idea" panel before an answer; sessions that
+open on the hardest item and end on an easy review; results that lead with
+what went right and show a five-session average; an orienting question and
+a "where it stops working" line on every card; `core` ideas; a "where this
+idea breaks" line with "Practise the weak part"; gentler wording ("Needs
+work", "Not yet"); "days practised" next to the streak; and validator
+warnings for loaded or double questions.
+
+### HTRAB overlay (optional)
+
+`htrab/` holds an experimental overlay for practising the reading method
+of *How to Read a Book*. Questions carry one tag
+(`level/topic/subtopic`); with the switch on, a reader can test one step
+(for example "Finding the Propositions") and sees Adler's advice in the
+feedback. A second sample bank, `banks/how-to-read-a-book.json`, shows
+it: open `index.html?bank=banks/how-to-read-a-book.json` (through a web
+server). Remove the overlay by deleting `htrab/` and three lines in
+`index.html`. See `htrab/README.md`.
+
+Nothing is locked: "Builds on" is only a hint (set `"strictOrder": true`
+in the bank to lock ideas until their requirements are understood).
+A bank without `concepts` works as before (custom practice only). The full design
+and the question fields are in `ai-context/learning-design.md`. Check a
+bank with `python3 tools/validate_bank.py questions.json`. The bundled
+`questions.json` is a small sample course ("Clock Arithmetic") that shows
+the format.
+
+Optional sign-in sync (progress only) is off by default: see
+`js/sync/README.md` and `js/sync/sync-config.js`.
 
 ## Try it on your computer
 
@@ -195,7 +237,7 @@ A theme is one folder in `themes/`. You do not need to touch any code.
 1. **Copy a theme folder** that is close to what you want, for example
    `themes/professional`, and rename the copy, e.g. `themes/forest`.
    The folder name is the theme's id (lower case, no spaces).
-2. **Edit `theme.json`:**
+2. **Edit `theme.json`:** (set `"group"` to one of the picker groups, e.g. "Simple & pastel", "Playful", "Subjects", "Wellbeing & culture", or a new name)
    - `name`: shown under the tile in the picker.
    - `fonts.body` and `fonts.headings`: CSS font lists. To use a Google
      Font, add its name to `GOOGLE_FONTS` in `tools/build_themes.py`.
@@ -257,7 +299,6 @@ css/
   question.css             question card, options, feedback, timers
   question-types.css       the other question types
   results.css              the results screen
-  cloud-sync.css           the optional "sign in to sync" bar
   themes.css               GENERATED: colours and pictures per theme
   phone.css                changes for narrow screens (loaded last)
 
@@ -281,14 +322,9 @@ js/
   session.js               runs a session: one question after another
   results-screen.js        the end of a session
   home-screen.js           progress ring, recent results, where you stand
+  home-layout.js           Settings screen, folding panels, Expand all, saved choices
   session-settings.js      the "What do you want to practise?" panel
   progress-file.js         download, load and reset progress
-  sync/                    OPTIONAL: save progress to an account
-    README.md              set up Firebase, turn off, or switch database
-    sync-config.js         which database and its settings (edit this)
-    progress-merge.js      combines two copies of progress
-    cloud-sync.js          sign-in bar and when to save
-    providers/             one adapter per database (firebase.js, ...)
   main.js                  starts everything (loaded last)
   theme-picker.js          light/dark/system and theme tiles (in <head>)
   themes-list.js           GENERATED: the list of themes
@@ -347,12 +383,7 @@ Saved in the browser under `recall-quiz:<book id>`, with readable names
 (`memoryLevel`, `nextReview`, ...). The format is described at the top of
 `js/progress-storage.js`. Older saves are upgraded automatically. Use
 **Download** to keep a backup or to move to another device. The theme
-choice is saved once for all books under `recall-quiz:theme`.
-
-If cloud sync is on (`js/sync/sync-config.js`), signed-in readers' progress
-is also saved in their account and merged across devices. Only progress
-is stored, never the questions. To set it up, turn it off, or switch to a
-different database, see [js/sync/README.md](js/sync/README.md).
+choice is saved once for all books under `recall-quiz:theme` and, when you are signed in, follows your account to other devices.
 
 ### Themes
 

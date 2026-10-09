@@ -57,8 +57,10 @@
       }
       isChecked = true;
       actions.remove();
+      const pickedIndexes = Array.from(tickedIndexes);
       const counts = markTicks(buttons, rightIndexes, tickedIndexes);
-      card.showResult(resultFromTickCounts(counts), { timedOut });
+      card.showResult(resultFromTickCounts(counts),
+        { timedOut, pickedIndexes });
     }
 
     card.setKeyHint("Keys: 1 to " + question.options.length +

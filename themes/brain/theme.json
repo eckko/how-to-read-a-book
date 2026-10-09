@@ -1,5 +1,6 @@
 {
   "name": "Healthy Brain",
+  "group": "Subjects",
   "fonts": {
     "body": "\"Nunito\",\"Quicksand\",system-ui,sans-serif",
     "headings": "\"Nunito\",system-ui,sans-serif"

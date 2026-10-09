@@ -85,18 +85,6 @@ Key: `recall-quiz:<book id>`. Current format, version 2:
   (`dayKey` in `js/spaced-repetition.js`).
 - `recentResults` is newest first, at most 5.
 - `verdict` is `"excellent"`, `"pass"` or `"fail"`.
-- `resetAt` (optional) is when Reset was pressed. Cloud sync drops
-  anything older than the latest `resetAt` when merging, so a reset is
-  not undone by another device.
-
-### In the account (cloud sync)
-
-When sync is on, the same object is saved per reader per book. With
-Firebase: `users/{uid}/books/{encodeURIComponent(book id)}` with fields
-`progress` (the object as JSON text) and `updatedAt`. Which account the
-browser copy belongs to is kept in localStorage under
-`recall-quiz-sync-owner:<book id>`. Merge rules are in
-`js/sync/progress-merge.js`.
 
 ### Version 1 (older saves and backups)
 
@@ -126,8 +114,17 @@ this code knows.
 ## Theme choice
 
 Key: `recall-quiz:theme` (shared by every book on the same site), value
-`{"t": "<theme id>", "m": "light" | "dark" | "system"}`. The short keys
-are kept for compatibility with existing saves.
+`{"t": "<theme id>", "m": "light" | "dark" | "system", "a": <ms>}`. The
+short keys are kept for compatibility with existing saves. `a` is when the
+reader last picked the theme (0 or missing if never); cloud sync keeps the
+newest choice. When signed in, the choice is also stored in the account as
+a document called `_settings` (same place and rules as a book's progress):
+`{"theme": {"t": ..., "m": ..., "a": ...}}`.
+
+## Home view choice
+
+Key: `recall-quiz-home-view`, value `"structure"` (default) or `"ideas"`.
+`?view=ideas` in the address overrides it. Kept in this browser only.
 
 ## theme.json
 
@@ -178,3 +175,39 @@ and `theme_variables` in `tools/build_themes.py`.
   forgiven in answers of 6+ letters, as for English.
 - The theme font stacks end with system Devanagari fonts (set in
   `tools/build_themes.py`).
+
+
+## Concepts and teaching fields (optional)
+
+A bank may add a top-level `concepts` list and per-question `concept`,
+`role`, `rung`, `optionExplain`, `explain`, `rule`, `teaches`, `hint`.
+The full schema and rules are in `learning-design.md`. Saved progress is
+unchanged (format v2). M3 adds optional bank fields: top-level `summary`
+and `unitSummaries`; per concept `question`, `core`, `htrab` and
+`card.limits`; per question `htrab`. See `learning-design.md`. Saved
+progress is still unchanged (format v2): a pretest only adds `pretested` and
+`pretestResult` to a question record; concept status is derived.
+
+## Settings (home layout and practice defaults)
+
+`localStorage` key `recall-quiz-home-layout` holds `{progress, recent, setup,
+stand, chapters, inner, timer, confidence, htrab, units, at}`:
+panels `progress`/`recent`/`setup`/`stand` are "open" | "closed"; `chapters`
+is "next" | "open" | "closed"; `inner` is "closed" | "open"; `timer` is
+0/15/30/60; `confidence` and `htrab` are booleans; `units` maps book id to the
+chapter picked; `at` is the time of the last change. In the account, the
+`_settings` document holds `layout: {p, r, s, w, c, i, t, f, h, u, a}` next to
+`theme`; the newest `a` wins. Code: `js/home-layout.js` (Settings screen,
+folding, Expand all), `js/session-settings.js` (`readChoices`/`useChoices`),
+`htrab/htrab.js` (`quiz.htrab.isOn`/`useRemote`). The HTRAB On/Off switch is
+shown on the Settings screen; its level/stage picker stays on the home screen.
+The sign-in bar shows on the home screen only when the reader must act
+(signed out, error); the Account section of Settings always shows.
+
+Practice values in this record are *defaults*. A change made on the home
+screen is an override kept in `sessionStorage` key
+`recall-quiz-practice-override` (this tab only, never synced); the home
+screen shows defaults plus overrides. Setting a default on the Settings
+screen clears that choice's override. `theme.json` may carry `"group"`; the
+picker shows one group at a time (`window.QUIZ_THEMES` entries are
+`[id, name, group]`).

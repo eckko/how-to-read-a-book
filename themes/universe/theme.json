@@ -1,5 +1,6 @@
 {
   "name": "Universe",
+  "group": "Subjects",
   "fonts": {
     "body": "\"Exo 2\",\"Nunito\",system-ui,sans-serif",
     "headings": "\"Exo 2\",\"Nunito\",system-ui,sans-serif"

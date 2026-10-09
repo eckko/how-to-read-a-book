@@ -1,5 +1,6 @@
 {
   "name": "Comic book",
+  "group": "Playful",
   "fonts": {
     "body": "\"Comic Neue\",\"Comic Sans MS\",system-ui,sans-serif",
     "headings": "\"Bangers\",\"Impact\",system-ui,sans-serif"

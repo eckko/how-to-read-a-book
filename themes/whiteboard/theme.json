@@ -1,5 +1,6 @@
 {
   "name": "Whiteboard",
+  "group": "Simple & pastel",
   "fonts": {
     "body": "\"Patrick Hand\",\"Comic Sans MS\",system-ui,sans-serif",
     "headings": "\"Caveat\",\"Patrick Hand\",cursive"

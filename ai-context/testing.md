@@ -24,6 +24,11 @@ headless Chromium, and checks:
 | `test_themes` | one tile per theme folder; choosing a theme and dark mode sets `data-theme`/`data-scheme`, and survives reload |
 | `test_phone_width` | no sideways scrolling at 375px |
 
+`python3 tests/test_tools.py` (no browser) round-trips
+`banks/how-to-read-a-book.json` through `plan_concept_bank.py` and
+`merge_concept_bank.py` and checks that bad tags and duplicate ids stop the
+merge.
+
 Tests use `page.route` to serve a made-up `questions.json` when they need
 a single question or custom labels, and block Google Fonts so they run
 offline.
@@ -61,3 +66,20 @@ find . -name "*.js" -o -name "*.css" -o -name "*.py" -o -name "*.html" \
 ```
 
 should print nothing.
+
+
+## Teaching mode tests
+
+`tests/run_tests.py` also runs `tools/validate_bank.py`, plays a whole
+Keep me going session (pretests unscored, cards, per-option
+explanations), any-order study (Teach me, Test me, no locks), custom
+practice, a second Keep me going that starts with reviews, and that the
+sign-in bar shows when sync is turned on. `play_learn_session` in the
+test file drives a session and is the helper to reuse.
+
+M3 adds tests for: the validator's writing rules, the new card and home
+fields, gentle results wording and the five-session average, the weak part
+and easy ending, the 5-minute session, and the HTRAB overlay (picker, only
+tagged questions, chip, advice, remembered switch, and the quiz still
+working with `htrab/` blocked). `open_page(browser, bank="name")` opens a
+bank from `banks/`; `block="**/htrab/**"` blocks files.

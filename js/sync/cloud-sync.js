@@ -25,6 +25,10 @@
   const PROVIDER_FOLDER = "js/sync/providers/";
   const OWNER_KEY_PREFIX = "recall-quiz-sync-owner:";
   const DEFAULT_SAVE_DELAY_SECONDS = 20;
+  /** The account document that holds settings shared by every book
+      (stored like a book called "_settings", so the rules need no change) */
+  const SETTINGS_DOCUMENT_ID = "_settings";
+  const THEME_SAVE_DELAY_SECONDS = 2;
   const MS_PER_SECOND = 1000;
   /** Give up waiting for the database after this long. A database that
       queues writes offline (Firestore) keeps retrying by itself. */
@@ -46,6 +50,7 @@
     status: "off",       // off | file | connecting | signed-out |
                          // syncing | saved | error
     saveTimer: null,
+    themeTimer: null,
   };
 
   // ------------------------------------------------------------ setup
@@ -138,6 +143,10 @@
     document.addEventListener("recallquiz:progress-saved",
       handleProgressSaved);
     document.addEventListener("recallquiz:session-finished", saveNow);
+    document.addEventListener("recallquiz:theme-changed",
+      handleThemeChanged);
+    document.addEventListener("recallquiz:layout-changed",
+      handleThemeChanged);
     document.addEventListener("visibilitychange",
       function saveWhenHidden() {
         if (document.visibilityState === "hidden") {
@@ -157,6 +166,7 @@
     sync.bookId = event.detail.bookId;
     if (sync.user) {
       saveNow();
+      syncSettings(sync.user);
     }
   }
 
@@ -170,11 +180,83 @@
       showStatus("signed-out");
       return;
     }
+    syncSettings(user);
     if (sync.bookId) {
       saveNow();
     } else {
       showStatus("saved");
     }
+  }
+
+  /** The reader picked a theme: save it to the account soon. */
+  function handleThemeChanged() {
+    clearTimeout(sync.themeTimer);
+    if (!sync.user) {
+      return;
+    }
+    const user = sync.user;
+    sync.themeTimer = setTimeout(function saveTheme() {
+      syncSettings(user);
+    }, THEME_SAVE_DELAY_SECONDS * MS_PER_SECOND);
+  }
+
+  /**
+   * Keep the theme the same on every device: the newest choice, in this
+   * browser or in the account, wins. A newer account choice is applied
+   * here; a newer browser choice is written to the account. Failures
+   * are logged and ignored (the theme is not worth an error message).
+   * @param {{id: string}} user
+   * @returns {Promise}
+   */
+  function syncSettings(user) {
+    const theme = window.RecallQuizTheme;
+    const layout = quiz.layout;
+    if (!theme || !sync.provider) {
+      return Promise.resolve();
+    }
+    return withTimeout(
+      sync.provider.readProgress(user.id, SETTINGS_DOCUMENT_ID))
+      .then(function chooseNewest(account) {
+        if (sync.user !== user) {
+          return undefined;
+        }
+        const next = {};
+        let mustWrite = false;
+        const savedTheme = account && account.theme;
+        const savedLayout = account && account.layout;
+        if (savedTheme) {
+          next.theme = savedTheme;
+        }
+        if (savedLayout) {
+          next.layout = savedLayout;
+        }
+        const localTheme = theme.read();
+        const themeUsed = savedTheme && theme.useRemote(
+          { themeId: savedTheme.t, mode: savedTheme.m, at: savedTheme.a });
+        if (!themeUsed && localTheme.at > 0 &&
+            (!savedTheme || localTheme.at > savedTheme.a)) {
+          next.theme = { t: localTheme.themeId, m: localTheme.mode,
+            a: localTheme.at };
+          mustWrite = true;
+        }
+        if (layout) {
+          const localLayout = layout.readForAccount();
+          const layoutUsed = savedLayout && layout.useRemote(savedLayout);
+          if (!layoutUsed && localLayout.a > 0 &&
+              (!savedLayout || localLayout.a > savedLayout.a)) {
+            next.layout = localLayout;
+            mustWrite = true;
+          }
+        }
+        if (!mustWrite) {
+          return undefined;
+        }
+        return withTimeout(sync.provider.writeProgress(
+          user.id, SETTINGS_DOCUMENT_ID, next));
+      })
+      .catch(function ignoreSettingsProblem(problem) {
+        console.error("Settings sync failed:", problem);
+      });
   }
 
   /** Progress changed in the browser: save to the account soon. */
@@ -390,17 +472,37 @@
    */
   function showStatus(status) {
     sync.status = status;
-    const bar = quiz.helpers.findElement("cloud-sync-bar");
-    bar.textContent = "";
-    bar.classList.remove("hidden");
-    bar.dataset.status = status;
-    bar.appendChild(quiz.helpers.createElement("p", "cloud-sync-text",
+    const helpers = quiz.helpers;
+    // The Settings screen always shows the account; the home screen only
+    // shows a bar when the reader has something to do (sign in, retry).
+    const needsAttention = ["file", "signed-out", "error"]
+      .indexOf(status) >= 0;
+    fillAccount(helpers.findElement("cloud-sync-bar"), status,
+      needsAttention);
+    const section = helpers.findElement("account-section");
+    if (section) {
+      section.classList.remove("hidden");
+      fillAccount(helpers.findElement("account-body"), status, true);
+    }
+  }
+
+  /**
+   * Fill one place (the home bar or the Settings account section).
+   * @param {HTMLElement} place
+   * @param {string} status
+   * @param {boolean} isShown  false hides the place
+   */
+  function fillAccount(place, status, isShown) {
+    place.textContent = "";
+    place.classList.toggle("hidden", !isShown);
+    place.dataset.status = status;
+    place.appendChild(quiz.helpers.createElement("p", "cloud-sync-text",
       statusText(status)));
     const buttons = quiz.helpers.createElement("div", "button-row");
     statusButtons(status).forEach(function addButton(button) {
       buttons.appendChild(button);
     });
-    bar.appendChild(buttons);
+    place.appendChild(buttons);
   }
 
   /** @returns {string} what to tell the reader in a state */
