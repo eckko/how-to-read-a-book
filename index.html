@@ -9,7 +9,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Flow</title>
+  <title>How to Read a Book</title>
   <link rel="icon" href="images/favicon.png" type="image/png">
   <link rel="apple-touch-icon" sizes="180x180" href="images/favicon.png">
 
@@ -19,9 +19,13 @@
   <link rel="stylesheet" href="css/question.css">
   <link rel="stylesheet" href="css/question-types.css">
   <link rel="stylesheet" href="css/results.css">
+  <link rel="stylesheet" href="css/learning.css">
   <link rel="stylesheet" href="css/cloud-sync.css">
   <link rel="stylesheet" href="css/themes.css">
   <link rel="stylesheet" href="css/phone.css">
+  <!-- HTRAB (optional overlay): delete this line, the two scripts below
+       and the htrab/ folder to remove it. -->
+  <link rel="stylesheet" href="htrab/htrab.css">
 
   <!-- Apply the saved theme before the page appears, so it never
        flashes the wrong colours. -->
@@ -41,7 +45,6 @@
     <div class="mascot" aria-hidden="true"></div>
     <div class="title-block">
       <h1 id="book-title">Recall Quiz</h1>
-      <p class="book-summary" id="book-summary"></p>
     </div>
     <button type="button" class="theme-button" id="theme-button"
             aria-expanded="false" aria-controls="theme-panel">
@@ -49,6 +52,12 @@
     </button>
     <div class="day-streak" id="day-streak"></div>
   </header>
+
+  <!-- What the book is about, under the header. Hidden in a session. -->
+  <div class="book-notes">
+    <p class="book-summary" id="book-summary"></p>
+    <p class="book-blurb hidden" id="book-blurb"></p>
+  </div>
 
   <!-- Theme picker. The tiles are added by js/theme-picker.js. -->
   <section class="panel hidden" id="theme-panel">
@@ -64,8 +73,8 @@
 
   <!-- ============================ Home ============================ -->
   <section id="home-screen">
-    <!-- Optional "save to your account" bar, filled by
-         js/sync/cloud-sync.js. Stays hidden when sync is off. -->
+    <!-- Optional sign-in bar, filled by js/sync/cloud-sync.js.
+         Stays hidden while sync-config.js has provider "none". -->
     <div class="panel cloud-sync-bar hidden" id="cloud-sync-bar"
          aria-live="polite"></div>
 
@@ -98,75 +107,13 @@
     </div>
 
     <div class="panel" id="session-setup">
-      <h2>What do you want to practise?</h2>
+      <h2>What do you want to do?</h2>
       <div class="fields">
 
         <label class="field">
           <span id="unit-picker-label">Chapter</span>
           <select id="unit-picker"></select>
         </label>
-
-        <div class="field">
-          <span>Which questions</span>
-          <div class="choice-group" id="question-filter-choice">
-            <button type="button" data-value="due"
-                    aria-pressed="true">Due and new</button>
-            <button type="button" data-value="gaps"
-                    aria-pressed="false">My gaps</button>
-            <button type="button" data-value="all"
-                    aria-pressed="false">Everything</button>
-          </div>
-        </div>
-
-        <div class="field">
-          <span>Session length</span>
-          <div class="choice-group" id="session-length-choice">
-            <button type="button" data-value="questions"
-                    aria-pressed="true">By questions</button>
-            <button type="button" data-value="time"
-                    aria-pressed="false">By time</button>
-          </div>
-
-          <div class="length-row" id="length-by-questions">
-            <input type="number" id="question-count-input" min="1"
-                   max="999" value="10" inputmode="numeric"
-                   aria-label="Number of questions" placeholder="All">
-            <span>questions</span>
-            <button type="button" class="pill-button"
-                    data-fills="question-count-input"
-                    data-fill-value="5">5</button>
-            <button type="button" class="pill-button"
-                    data-fills="question-count-input"
-                    data-fill-value="10">10</button>
-            <button type="button" class="pill-button"
-                    data-fills="question-count-input"
-                    data-fill-value="25">25</button>
-            <button type="button" class="pill-button"
-                    data-fills="question-count-input"
-                    data-fill-value="50">50</button>
-            <button type="button" class="pill-button"
-                    data-fills="question-count-input"
-                    data-fill-value="">All</button>
-          </div>
-
-          <div class="length-row hidden" id="length-by-time">
-            <input type="number" id="minutes-input" min="1" max="240"
-                   value="15" inputmode="numeric" aria-label="Minutes">
-            <span>minutes. Answer as many as you can.</span>
-            <button type="button" class="pill-button"
-                    data-fills="minutes-input"
-                    data-fill-value="5">5</button>
-            <button type="button" class="pill-button"
-                    data-fills="minutes-input"
-                    data-fill-value="10">10</button>
-            <button type="button" class="pill-button"
-                    data-fills="minutes-input"
-                    data-fill-value="15">15</button>
-            <button type="button" class="pill-button"
-                    data-fills="minutes-input"
-                    data-fill-value="30">30</button>
-          </div>
-        </div>
 
         <div class="field">
           <span>Timer per question (optional)</span>
@@ -183,19 +130,100 @@
         </div>
 
         <div class="field">
-          <span>Confidence check (optional)</span>
+          <span>Confidence check</span>
           <div class="choice-group" id="confidence-choice">
             <button type="button" data-value="off"
-                    aria-pressed="true">Off</button>
+                    aria-pressed="false">Off</button>
             <button type="button" data-value="on"
-                    aria-pressed="false">Ask how sure I am</button>
+                    aria-pressed="true">Ask how sure I am</button>
           </div>
         </div>
 
       </div>
-      <button class="start-button" id="start-button"
-              type="button">Start practice</button>
-      <p class="ready-summary" id="ready-summary"></p>
+
+      <!-- Books with ideas: one button that picks what comes next.
+           Hidden for books without ideas. -->
+      <div id="keep-going-block">
+        <button class="start-button" id="keep-going-button"
+                type="button">Keep me going</button>
+        <p class="ready-summary" id="keep-going-summary"></p>
+        <button class="button" id="quick-session-button"
+                type="button">5-minute session: core ideas only</button>
+        <p class="note">Or open any idea below and choose Teach me or
+          Test me. Study in any order you like.</p>
+      </div>
+
+      <details class="custom-practice" id="custom-practice">
+        <summary>Custom practice</summary>
+        <div class="fields">
+
+          <div class="field">
+            <span>Which questions</span>
+            <div class="choice-group" id="question-filter-choice">
+              <button type="button" data-value="due"
+                      aria-pressed="true">Due and new</button>
+              <button type="button" data-value="gaps"
+                      aria-pressed="false">My gaps</button>
+              <button type="button" data-value="all"
+                      aria-pressed="false">Everything</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span>Session length</span>
+            <div class="choice-group" id="session-length-choice">
+              <button type="button" data-value="questions"
+                      aria-pressed="true">By questions</button>
+              <button type="button" data-value="time"
+                      aria-pressed="false">By time</button>
+            </div>
+
+            <div class="length-row" id="length-by-questions">
+              <input type="number" id="question-count-input" min="1"
+                     max="999" value="10" inputmode="numeric"
+                     aria-label="Number of questions" placeholder="All">
+              <span>questions</span>
+              <button type="button" class="pill-button"
+                      data-fills="question-count-input"
+                      data-fill-value="5">5</button>
+              <button type="button" class="pill-button"
+                      data-fills="question-count-input"
+                      data-fill-value="10">10</button>
+              <button type="button" class="pill-button"
+                      data-fills="question-count-input"
+                      data-fill-value="25">25</button>
+              <button type="button" class="pill-button"
+                      data-fills="question-count-input"
+                      data-fill-value="50">50</button>
+              <button type="button" class="pill-button"
+                      data-fills="question-count-input"
+                      data-fill-value="">All</button>
+            </div>
+
+            <div class="length-row hidden" id="length-by-time">
+              <input type="number" id="minutes-input" min="1" max="240"
+                     value="15" inputmode="numeric" aria-label="Minutes">
+              <span>minutes. Answer as many as you can.</span>
+              <button type="button" class="pill-button"
+                      data-fills="minutes-input"
+                      data-fill-value="5">5</button>
+              <button type="button" class="pill-button"
+                      data-fills="minutes-input"
+                      data-fill-value="10">10</button>
+              <button type="button" class="pill-button"
+                      data-fills="minutes-input"
+                      data-fill-value="15">15</button>
+              <button type="button" class="pill-button"
+                      data-fills="minutes-input"
+                      data-fill-value="30">30</button>
+            </div>
+          </div>
+
+        </div>
+        <button class="start-button" id="start-button"
+                type="button">Start practice</button>
+        <p class="ready-summary" id="ready-summary"></p>
+      </details>
       <p class="storage-warning" id="storage-warning"></p>
     </div>
   </section>
@@ -241,9 +269,8 @@
              accept="application/json" class="hidden">
     </div>
     <p class="note">
-      Progress is saved in this browser on this device, and in your
-      account if you sign in above. Download a copy to keep a backup or
-      move it to another device by hand.
+      Progress is saved in this browser on this device. Download a copy to
+      move it to another device or keep a backup.
     </p>
   </section>
 </main>
@@ -259,6 +286,7 @@
 <script src="js/book.js"></script>
 <script src="js/progress-storage.js"></script>
 <script src="js/spaced-repetition.js"></script>
+<script src="js/learning.js"></script>
 <script src="js/celebration.js"></script>
 <script src="js/timers.js"></script>
 <script src="js/answer-feedback.js"></script>
@@ -270,23 +298,24 @@
 <script src="js/question-types/match-pairs.js"></script>
 <script src="js/question-types/sort-into-groups.js"></script>
 <script src="js/question-types/recall.js"></script>
+<script src="js/question-types/lesson.js"></script>
 <script src="js/session.js"></script>
 <script src="js/results-screen.js"></script>
 <script src="js/home-screen.js"></script>
 <script src="js/session-settings.js"></script>
 <script src="js/progress-file.js"></script>
-<!-- Optional cloud sync. To remove it, delete these three lines (and the
-     js/sync folder). To change the database, see js/sync/README.md. -->
-<script src="js/sync/sync-config.js"></script>
 <script src="js/sync/progress-merge.js"></script>
+<script src="js/sync/sync-config.js"></script>
 <script src="js/sync/cloud-sync.js"></script>
+<script src="htrab/htrab-config.js"></script>   <!-- HTRAB -->
+<script src="htrab/htrab.js"></script>          <!-- HTRAB -->
 <script src="js/main.js"></script>
 <script>
 /* If any script failed to load (for example a file missing from the
    upload), say so on the page instead of leaving it blank. */
 (function reportMissingScripts() {
   var quiz = window.RecallQuiz || {};
-  var expected = ["helpers", "book", "progress", "memory", "timers",
+  var expected = ["helpers", "book", "progress", "memory", "learning", "timers",
     "answerFeedback", "questionTypes", "session", "resultsScreen",
     "homeScreen", "settings"];
   var missing = expected.filter(function (name) { return !quiz[name]; });

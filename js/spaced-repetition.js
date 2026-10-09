@@ -10,6 +10,10 @@
  *   days until:   0   1   3   7  21
  *
  * Level 3 or more counts as "solid" on the home screen.
+ *
+ * A pretest (an unscored guess before an idea is taught, see
+ * learning.js) is kept apart: recordPretest marks the question as
+ * pretested without touching its level or counts.
  */
 (function setUpSpacedRepetition(quiz) {
   "use strict";
@@ -63,6 +67,49 @@
     quiz.progress.saveProgress();
   }
 
+  /**
+   * Note a pretest (an unscored guess made before the idea was taught).
+   * It changes no memory level and no counts: the question is simply
+   * marked as pretested and is due straight away, so it comes back as an
+   * ordinary scored question once the idea has been learned. A question
+   * that has already been scored is left alone.
+   * @param {string} questionId
+   * @param {"got"|"part"|"miss"} result  how the guess went
+   */
+  function recordPretest(questionId, result) {
+    if (isScored(questionId)) {
+      return;
+    }
+    const record = getQuestionRecord(questionId) || createNewRecord();
+    record.pretested = true;
+    record.pretestResult = result;
+    record.lastAnswered = Date.now();
+    savedQuestions()[questionId] = record;
+    rememberTodayAsPracticed();
+    quiz.progress.saveProgress();
+  }
+
+  /**
+   * True if a question has been answered as a scored question (a
+   * pretest alone does not count).
+   * @param {string} questionId
+   * @returns {boolean}
+   */
+  function isScored(questionId) {
+    const record = getQuestionRecord(questionId);
+    return Boolean(record) && record.timesSeen > 0;
+  }
+
+  /**
+   * The memory level of a question, 0 if it was never scored.
+   * @param {string} questionId
+   * @returns {number}
+   */
+  function memoryLevelOf(questionId) {
+    const record = getQuestionRecord(questionId);
+    return record && record.timesSeen > 0 ? record.memoryLevel : 0;
+  }
+
   /** @returns {object} the record for a question never answered before */
   function createNewRecord() {
     return {
@@ -92,7 +139,7 @@
    */
   function isWaitingForReview(questionId) {
     const record = getQuestionRecord(questionId);
-    return Boolean(record) && record.nextReview <= Date.now();
+    return isScored(questionId) && record.nextReview <= Date.now();
   }
 
   /**
@@ -122,7 +169,7 @@
    * @returns {boolean}
    */
   function isLearning(questionId) {
-    return Boolean(getQuestionRecord(questionId)) && !isSolid(questionId);
+    return isScored(questionId) && !isSolid(questionId);
   }
 
   /**
@@ -173,6 +220,11 @@
     return streak;
   }
 
+  /** @returns {number} all the days the reader has practised */
+  function countDaysPracticed() {
+    return quiz.progress.saved.daysPracticed.length;
+  }
+
   /** @returns {number} questions answered since midnight */
   function countAnsweredToday() {
     const midnight = new Date();
@@ -185,6 +237,9 @@
 
   quiz.memory = {
     recordAnswer,
+    recordPretest,
+    isScored,
+    memoryLevelOf,
     isDueOrNew,
     isWaitingForReview,
     isGap,
@@ -192,6 +247,7 @@
     isLearning,
     timesMissed,
     currentDayStreak,
+    countDaysPracticed,
     countAnsweredToday,
   };
 })((window.RecallQuiz = window.RecallQuiz || {}));

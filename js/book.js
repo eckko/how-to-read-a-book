@@ -81,13 +81,19 @@
 
   /**
    * The short chapter name for a question, e.g. "Chapter 9".
+   * Named units such as "Introduction" or "Rule #1" are kept as is.
    * @param {object} question
    * @returns {string}
    */
   function unitShortName(question) {
-    const number = unitNumber(question.unit);
-    // Units without a number ("Preface") are shown as they are.
-    return number ? book.labels.unit + " " + number : question.unit;
+    const unitId = question.unit;
+    const usesLabel = /^\d/.test(unitId) ||
+      /^chapter\s/i.test(unitId) ||
+      unitId.indexOf(book.labels.unit + " ") === 0;
+    if (!usesLabel) {
+      return unitId;
+    }
+    return book.labels.unit + " " + unitNumber(unitId);
   }
 
   /**

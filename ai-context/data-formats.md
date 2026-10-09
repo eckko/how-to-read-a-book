@@ -85,18 +85,6 @@ Key: `recall-quiz:<book id>`. Current format, version 2:
   (`dayKey` in `js/spaced-repetition.js`).
 - `recentResults` is newest first, at most 5.
 - `verdict` is `"excellent"`, `"pass"` or `"fail"`.
-- `resetAt` (optional) is when Reset was pressed. Cloud sync drops
-  anything older than the latest `resetAt` when merging, so a reset is
-  not undone by another device.
-
-### In the account (cloud sync)
-
-When sync is on, the same object is saved per reader per book. With
-Firebase: `users/{uid}/books/{encodeURIComponent(book id)}` with fields
-`progress` (the object as JSON text) and `updatedAt`. Which account the
-browser copy belongs to is kept in localStorage under
-`recall-quiz-sync-owner:<book id>`. Merge rules are in
-`js/sync/progress-merge.js`.
 
 ### Version 1 (older saves and backups)
 
@@ -178,3 +166,15 @@ and `theme_variables` in `tools/build_themes.py`.
   forgiven in answers of 6+ letters, as for English.
 - The theme font stacks end with system Devanagari fonts (set in
   `tools/build_themes.py`).
+
+
+## Concepts and teaching fields (optional)
+
+A bank may add a top-level `concepts` list and per-question `concept`,
+`role`, `rung`, `optionExplain`, `explain`, `rule`, `teaches`, `hint`.
+The full schema and rules are in `learning-design.md`. Saved progress is
+unchanged (format v2). M3 adds optional bank fields: top-level `summary`
+and `unitSummaries`; per concept `question`, `core`, `htrab` and
+`card.limits`; per question `htrab`. See `learning-design.md`. Saved
+progress is still unchanged (format v2): a pretest only adds `pretested` and
+`pretestResult` to a question record; concept status is derived.

@@ -28,6 +28,10 @@
   min-width: 0;
 }
 
+.book-notes {
+  margin: -6px 0 18px;
+}
+
 .book-summary {
   margin: 4px 0 0;
   color: var(--color-text-muted);
@@ -47,9 +51,10 @@
   font-weight: 600;
 }
 
-/* During a session the header only shows the title */
-.in-session .day-streak {
-  visibility: hidden;
+/* During a session the header only shows the picture and the title */
+.in-session .day-streak,
+.in-session .book-notes {
+  display: none;
 }
 
 .in-session .theme-button {

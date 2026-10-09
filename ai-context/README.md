@@ -9,6 +9,8 @@ when you change how something works.
 | [architecture.md](architecture.md) | understand the modules, the shared `quiz` object, script load order, the session flow, and where to make a change |
 | [data-formats.md](data-formats.md) | read or write `questions.json`, saved progress, backups, `theme.json`, or localStorage keys |
 | [coding-conventions.md](coding-conventions.md) | write code that fits: naming, comments, line length, CSS rules |
+| [learning-design.md](learning-design.md) | work on Keep me going, Teach me / Test me, concepts, ladders, pretests, or write a teaching bank |
+| [htrab-writing.md](htrab-writing.md) | build a concept bank for the HTRAB site: pipeline, tagging rules, writer notes, planning and merge tools |
 | [recipes.md](recipes.md) | follow step-by-step instructions for common changes |
 | [testing.md](testing.md) | run and extend the tests, and check visual changes |
 | [pitfalls.md](pitfalls.md) | avoid the bugs that have already bitten this code once |

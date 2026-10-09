@@ -38,9 +38,21 @@
     findElement("load-error").classList.remove("hidden");
   }
 
-  /** Fetch questions.json from next to this page. */
+  /**
+   * The bank to load: questions.json, or a file in banks/ named in the
+   * address (index.html?bank=banks/how-to-read-a-book.json), which lets
+   * one site hold several sample banks.
+   * @returns {string}
+   */
+  function questionsFileName() {
+    const wanted = new URLSearchParams(window.location.search).get("bank");
+    return /^banks\/[\w-]+\.json$/.test(wanted || "") ?
+      wanted : QUESTIONS_FILE;
+  }
+
+  /** Fetch the question bank from next to this page. */
   function loadQuestionsFile() {
-    fetch(QUESTIONS_FILE, { cache: "no-cache" })
+    fetch(questionsFileName(), { cache: "no-cache" })
       .then(function readJson(response) {
         if (!response.ok) {
           throw new Error("HTTP " + response.status);

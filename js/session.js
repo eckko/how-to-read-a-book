@@ -22,8 +22,19 @@
     score: { got: 0, part: 0, miss: 0 },
     /** Questions missed this session, for the results screen */
     missedQuestions: [],
+    /** Questions answered right this session ("what went right") */
+    rightQuestions: [],
     /** Times the reader said "Certain" and was wrong */
     confidentMissCount: 0,
+    /** Warm-up guesses (pretests) answered. They are not scored. */
+    pretestCount: 0,
+
+    /** True for a Learn session (pretests, cards, ladders) */
+    isGuided: false,
+    /** Titles of the concepts a Learn session teaches */
+    conceptTitles: [],
+    /** What this session is called in "Your recent results" */
+    scopeName: "",
 
     /** Settings copied when the session starts */
     isTimed: false,
@@ -45,14 +56,20 @@
 
   // ---------------------------------------------------------- start
 
-  /** Start a session with the settings on the home screen. */
-  function startSession() {
-    const questions = quiz.settings.chooseQuestionsForSession();
-    if (questions.length === 0) {
+  /**
+   * Start a session. Without a plan it uses the settings on the home
+   * screen. A plan starts exactly its steps (the concept list buttons
+   * use this).
+   * @param {{questions: object[], isGuided: boolean, isTimed: boolean,
+   *          conceptTitles: string[], scopeName: string}} [plan]
+   */
+  function startSession(plan) {
+    const chosen = plan || quiz.settings.chooseSession();
+    if (chosen.questions.length === 0) {
       quiz.settings.updateReadySummary();
       return;
     }
-    resetState(questions);
+    resetState(chosen);
     quiz.timers.stopSessionClock();
     document.body.classList.add("in-session");
     if (state.isTimed) {
@@ -67,18 +84,44 @@
     showCurrentQuestion();
   }
 
+  /** Start a Learn session for chosen concepts (from the concept list). */
+  function startLearning(conceptIds) {
+    startSession(quiz.learning.createLearnPlan({ conceptIds }));
+  }
+
+  /**
+   * Practise exactly these questions, shuffled (from the concept list).
+   * @param {object[]} questions
+   * @param {string} scopeName
+   */
+  function startQuestions(questions, scopeName) {
+    startSession({
+      questions: quiz.helpers.shuffledCopy(questions),
+      isGuided: false,
+      isTimed: false,
+      conceptTitles: [],
+      scopeName,
+    });
+  }
+
   /**
    * Fresh state for a new session.
-   * @param {object[]} questions
+   * @param {{questions: object[], isGuided: boolean, isTimed: boolean,
+   *          conceptTitles: string[], scopeName: string}} plan
    */
-  function resetState(questions) {
+  function resetState(plan) {
     const settings = quiz.settings.current;
-    state.questions = questions;
+    state.questions = plan.questions;
     state.currentIndex = 0;
     state.score = { got: 0, part: 0, miss: 0 };
     state.missedQuestions = [];
+    state.rightQuestions = [];
     state.confidentMissCount = 0;
-    state.isTimed = settings.lengthMode === "time";
+    state.pretestCount = 0;
+    state.isGuided = Boolean(plan.isGuided);
+    state.conceptTitles = plan.conceptTitles || [];
+    state.scopeName = plan.scopeName || quiz.settings.scopeName();
+    state.isTimed = Boolean(plan.isTimed);
     state.sessionMinutes = quiz.settings.sessionMinutes();
     state.secondsPerQuestion = settings.secondsPerQuestion;
     state.askConfidence = settings.askConfidence;
@@ -108,24 +151,36 @@
     quiz.timers.stopQuestionTimer();
     state.currentQuestionAnswered = false;
     const question = state.questions[state.currentIndex];
+    const isCard = question.kind === "lesson";
     const cardElement = openQuestionCard();
 
     cardElement.appendChild(state.isTimed
       ? quiz.timers.createSessionClockBar(state.currentIndex + 1)
       : createProgressSegments());
-    if (state.secondsPerQuestion) {
+    if (state.secondsPerQuestion && !isCard) {
       cardElement.appendChild(
         quiz.timers.createQuestionTimer(state.secondsPerQuestion));
     }
     cardElement.appendChild(createQuestionMeta(question));
     cardElement.appendChild(createQuestionText(question));
+    if (question.hint) {
+      cardElement.appendChild(createHintRow(question.hint));
+    }
+    const ideaRow = isCard ? null : createShowIdeaRow(question);
+    if (ideaRow) {
+      cardElement.appendChild(ideaRow);
+    }
     if (!state.isTimed) {
       quiz.timers.showQuestionsLeft(
-        state.questions.length - state.currentIndex, state.questions.length);
+        countQuestionsFrom(state.currentIndex), countQuestionsFrom(0));
     }
 
     const answerArea = createElement("div");
-    if (state.askConfidence) {
+    // Cards have nothing to answer, and a warm-up guess is meant to be
+    // a guess, so neither asks "How sure are you?".
+    const asksConfidence = state.askConfidence && !isCard &&
+      !question.isPretestRun;
+    if (asksConfidence) {
       cardElement.appendChild(
         quiz.answerFeedback.createConfidenceRow(answerArea));
     } else {
@@ -140,6 +195,54 @@
     const card = createQuestionCard(question, answerArea, keyHint);
     quiz.questionTypes.show(question, card);
     cardElement.appendChild(createEndSessionButton());
+    // Optional add-ons (such as the HTRAB overlay) decorate the question.
+    document.dispatchEvent(new CustomEvent("recallquiz:question-shown",
+      { detail: { question, cardElement } }));
+  }
+
+  /**
+   * How many steps to answer from an index on (cards do not count).
+   * @param {number} startIndex
+   * @returns {number}
+   */
+  function countQuestionsFrom(startIndex) {
+    return state.questions.slice(startIndex).filter(
+      function isQuestion(step) {
+        return step.kind !== "lesson";
+      }).length;
+  }
+
+  /**
+   * A "Show a hint" button that reveals the question's hint.
+   * @param {string} hintText
+   * @returns {HTMLElement}
+   */
+  function createHintRow(hintText) {
+    const row = createElement("div", "hint-row");
+    const button = createButton("Show a hint", "pill-button",
+      function showHint() {
+        button.remove();
+        row.appendChild(createElement("p", "hint-text", hintText));
+      });
+    row.appendChild(button);
+    return row;
+  }
+
+  /**
+   * A "Read the idea" panel that opens the concept card above the
+   * question, so the reader can read first, answer later. Not offered
+   * on a warm-up guess, which is meant to come before the card.
+   * @param {object} question
+   * @returns {HTMLElement|null}
+   */
+  function createShowIdeaRow(question) {
+    const concept = quiz.learning.conceptById(question.concept);
+    if (!concept || question.isPretestRun) {
+      return null;
+    }
+    const row = createElement("div", "hint-row");
+    row.appendChild(quiz.learning.createIdeaAgainPanel(concept, false, true));
+    return row;
   }
 
   /** Move on: the next question, or the results if time ran out. */
@@ -209,6 +312,12 @@
         quiz.answerFeedback.recordResult(question, result);
         goToNextQuestion();
       },
+
+      /** Move on from a step with nothing to answer (a concept card). */
+      continueToNext() {
+        state.currentQuestionAnswered = true;
+        goToNextQuestion();
+      },
     };
   }
 
@@ -261,7 +370,8 @@
     meta.appendChild(topic);
 
     meta.appendChild(createElement("span", "question-kind",
-      quiz.questionTypes.labelFor(question)));
+      quiz.learning.stepLabel(question,
+        quiz.questionTypes.labelFor(question))));
     return meta;
   }
 
@@ -328,12 +438,25 @@
     state.keyHandler(event);
   }
 
-  findElement("start-button").addEventListener("click", startSession);
+  findElement("start-button").addEventListener("click",
+    function startFromSettings() {
+      startSession();
+    });
+  findElement("keep-going-button").addEventListener("click",
+    function startKeepGoing() {
+      startSession(quiz.settings.chooseKeepGoing());
+    });
+  findElement("quick-session-button").addEventListener("click",
+    function startQuickSession() {
+      startSession(quiz.settings.chooseQuickSession());
+    });
   document.addEventListener("keydown", handleKeyPress);
 
   quiz.session = {
     state,
     startSession,
+    startLearning,
+    startQuestions,
     goToNextQuestion,
     returnHome,
   };

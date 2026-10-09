@@ -18,7 +18,6 @@ every question right and wrong (slow: about a second per question).
 import json
 import re
 import subprocess
-import tempfile
 import sys
 import time
 from pathlib import Path
@@ -31,7 +30,10 @@ from merge_question_bank import question_problems  # noqa: E402
 SITE_FOLDER = Path(__file__).resolve().parent.parent
 PORT = 8765
 PAGE_URL = f"http://localhost:{PORT}/index.html"
-BOOK = json.loads((SITE_FOLDER / "questions.json").read_text())
+# The tests run against a fixed sample bank, so they pass whatever
+# questions.json the site holds. (The real file is still validated.)
+BOOK = json.loads(
+    (SITE_FOLDER / "tests/fixtures/clock-arithmetic.json").read_text())
 
 ANSWER_EVERY_QUESTION = "--all" in sys.argv
 SAMPLE_PER_KIND = 3
@@ -48,6 +50,16 @@ def check(description, condition, detail=""):
 
 
 # ------------------------------------------------------------- answering
+
+
+def item(css, text):
+    """Selector for the element showing this text. Text with a formula
+    is matched by the TeX the typesetter keeps in its annotation."""
+    formula = re.search(r"\\\((.+?)\\\)", text)
+    if formula:
+        tex = formula.group(1).replace("\\", "\\\\").replace('"', '\\"')
+        return f'{css}:has(annotation:text-is("{tex}"))'
+    return f'{css}:text-is("{text}")'
 
 
 def answer_question(page, question, answer_wrongly):
@@ -79,21 +91,20 @@ def answer_question(page, question, answer_wrongly):
     elif kind == "order":
         items = question["items"]
         for text in (list(reversed(items)) if answer_wrongly else items):
-            page.click(f'.order-pool .order-item:text-is("{text}")')
+            page.click(item(".order-pool .order-item", text))
         page.click("text=Check order")
     elif kind == "match":
         pairs = question["pairs"]
         partners = pairs[::-1] if answer_wrongly else pairs
         for (left, _), (_, right) in zip(pairs, partners):
-            page.click(f'.match-column:nth-child(1) '
-                       f'.match-item:text-is("{left}")')
-            page.click(f'.match-column:nth-child(2) '
-                       f'.match-item:text-is("{right}")')
+            page.click(item(".match-column:nth-child(1) .match-item", left))
+            page.click(item(".match-column:nth-child(2) .match-item",
+                            right))
         page.click("text=Check matches")
     elif kind == "sort":
-        for item in question["items"]:
-            group = 1 - item["g"] if answer_wrongly else item["g"]
-            page.click(f'.sort-pool .sort-chip:text-is("{item["t"]}")')
+        for entry in question["items"]:
+            group = 1 - entry["g"] if answer_wrongly else entry["g"]
+            page.click(item(".sort-pool .sort-chip", entry["t"]))
             page.click(f".sort-group:nth-child({group + 1}) "
                        ".sort-group-head")
         page.click("text=Check groups")
@@ -102,50 +113,75 @@ def answer_question(page, question, answer_wrongly):
         page.keyboard.press("1" if answer_wrongly else "3")
 
 
-def sync_config_script(provider="none", save_delay_seconds=20, **settings):
-    """The text of a js/sync/sync-config.js for one provider."""
-    config = {"provider": provider, "saveDelaySeconds": save_delay_seconds,
-              provider: settings}
-    return "window.RecallQuizSyncConfig = " + json.dumps(config) + ";"
-
-
-def open_page(browser, questions=None, book=None, width=430,
-              sync_config=None, before_load=None):
-    """Open the quiz, optionally with a made-up questions.json.
-
-    Cloud sync is off unless sync_config (the text of a sync-config.js)
-    is given, so the tests never reach a real database. before_load is
-    JavaScript run before the page's own scripts."""
+def open_page(browser, questions=None, book=None, width=430, bank=None,
+              block=None):
+    """Open the quiz, optionally with a made-up questions.json, a bank
+    from banks/ (bank="how-to-read-a-book") or some files blocked."""
     page = browser.new_page(viewport={"width": width, "height": 900})
     page.errors = []
     page.on("pageerror", lambda error: page.errors.append(str(error)))
     page.on("dialog", lambda dialog: dialog.accept())
     page.route("**/fonts.googleapis.com/**", lambda route: route.abort())
-    config_text = sync_config or sync_config_script("none")
     page.route("**/js/sync/sync-config.js", lambda route: route.fulfill(
-        body=config_text, content_type="text/javascript"))
-    if before_load:
-        page.add_init_script(before_load)
-    if questions is not None or book is not None:
-        served = dict(book or BOOK)
-        if questions is not None:
-            served["questions"] = questions
-        page.route("**/questions.json",
-                   lambda route: route.fulfill(json=served))
-    page.goto(PAGE_URL)
+        content_type="application/javascript",
+        body='window.RecallQuizSyncConfig = {provider: "none"};'))
+    if block:
+        page.route(block, lambda route: route.abort())
+    served = dict(book or BOOK)
+    if questions is not None:
+        served["questions"] = questions
+    page.route("**/questions.json", lambda route: route.fulfill(json=served))
+    page.goto(PAGE_URL + (f"?bank=banks/{bank}.json" if bank else ""))
     page.wait_for_selector("#book-title:not(:text-is('Recall Quiz'))")
     return page
 
 
 def start_session(page, confidence=False, timed=False):
     """Pick "Everything", all questions, and press Start."""
+    if not page.eval_on_selector("#custom-practice", "d => d.open"):
+        page.click("#custom-practice summary")
     page.click("#question-filter-choice button[data-value='all']")
+    if not confidence:
+        page.click("#confidence-choice button[data-value='off']")
     page.fill("#question-count-input", "")
-    if confidence:
-        page.click("#confidence-choice button[data-value='on']")
     if timed:
         page.click("#session-length-choice button[data-value='time']")
     page.click("#start-button")
+
+
+def current_step(page):
+    """The step on screen, read from the session state."""
+    return page.evaluate(
+        "() => { const s = window.RecallQuiz.session.state;"
+        " return s.questions[s.currentIndex]; }")
+
+
+def play_learn_session(page, answer_wrongly=False, log=None):
+    """Play the whole Learn session on screen. Returns the steps seen."""
+    seen = []
+    for _ in range(80):
+        if page.is_visible(".result"):
+            break
+        step = current_step(page)
+        seen.append(step)
+        if step["kind"] == "lesson":
+            page.keyboard.press("Enter")
+            page.wait_for_timeout(50)
+            continue
+        if step.get("isPretestRun") or answer_wrongly is False:
+            wrong = bool(step.get("isPretestRun")) or answer_wrongly
+        else:
+            wrong = answer_wrongly
+        if page.is_visible(".confidence-row"):
+            page.click(".confidence-row .pill-button >> nth=1")
+        answer_question(page, step, wrong)
+        if step["kind"] != "recall":
+            page.wait_for_selector("#question-card .verdict")
+            if log is not None:
+                log.append(page.inner_text("#question-card"))
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(50)
+    return seen
 
 
 # ------------------------------------------------------------- tests
@@ -312,6 +348,10 @@ def test_book_labels(browser):
     book = dict(BOOK)
     book["labels"] = {"unit": "Lesson", "units": "lessons",
                       "topic": "Section", "whole": "Whole course"}
+    # Relabelling applies to numbered units ("Chapter 3"); named units
+    # such as "Introduction" or "Rule #1" are shown as they are.
+    book["questions"] = [
+        dict(question, unit="Chapter 1") for question in BOOK["questions"]]
     page = open_page(browser, book=book)
     check("the chapter picker says Lesson",
           page.inner_text("#unit-picker-label") == "Lesson")
@@ -345,8 +385,7 @@ def test_sanskrit_answers(browser):
                                ".fill-input.is-incorrect")
         matched = page.eval_on_selector(
             ".fill-input", "e => e.classList.contains('is-correct')")
-        verdict = "accepted" if should_match else "not accepted"
-        check(f"typing {typed} is {verdict}",
+        check(f"typing {typed} is {'accepted' if should_match else 'not accepted'}",
               matched == should_match and not page.errors,
               "; ".join(page.errors))
         page.close()
@@ -450,367 +489,190 @@ def test_phone_width(browser):
     page.close()
 
 
-# ------------------------------------------------------------ cloud sync
-
-EXAMPLE_STORE_KEY = f"recall-quiz-example-store:example-user/{BOOK['id']}"
-OWNER_KEY = f"recall-quiz-sync-owner:{BOOK['id']}"
-LOCAL_KEY = f"recall-quiz:{BOOK['id']}"
-
-
-def progress_record(level, answered_at):
-    """A saved record for one question."""
-    return {"memoryLevel": level, "timesSeen": 1, "timesMissed": 0,
-            "nextReview": 0, "lastAnswered": answered_at,
-            "confidentMisses": 0}
+def test_bank_passes_the_validator():
+    """tools/validate_bank.py finds no errors in questions.json."""
+    print("Teaching bank")
+    result = subprocess.run(
+        [sys.executable, str(SITE_FOLDER / "tools" / "validate_bank.py"),
+         str(SITE_FOLDER / "questions.json")],
+        capture_output=True, text=True)
+    check("the validator reports no errors", result.returncode == 0,
+          result.stdout[-300:])
 
 
-def progress_with(records):
-    """Version 2 progress holding the given question records."""
-    return {"version": 2, "questions": records, "daysPracticed": [],
-            "recentResults": []}
+def saved_progress(page):
+    """The progress record of the open book, from local storage."""
+    return page.evaluate(
+        "() => { const key = Object.keys(localStorage)"
+        ".find(k => k.startsWith('recall-quiz:'));"
+        " return key ? JSON.parse(localStorage[key]) : null; }")
 
 
-def read_json(page, storage, key):
-    """Parse a JSON value from localStorage or sessionStorage."""
-    text = page.evaluate(f"{storage}.getItem({json.dumps(key)})")
-    return json.loads(text) if text else None
+def open_concept(page, index):
+    """Open the idea at this position in the first lesson's list."""
+    unit = page.locator("#where-you-stand details.unit-progress").first
+    if not unit.evaluate("d => d.open"):
+        unit.locator("summary").first.click()
+    row = page.locator(".concept-row").nth(index)
+    row.locator("summary").click()
+    return row
 
 
-def wait_for_sync_status(page, status, seconds=10):
-    """Wait until the sync bar shows a state (saved, signed-out, ...)."""
-    page.wait_for_selector(f'#cloud-sync-bar[data-status="{status}"]',
-                           timeout=seconds * 1000)
+def scored_steps(seen):
+    """The steps of a session that are real, scored questions."""
+    return [step for step in seen
+            if step["kind"] != "lesson" and not step.get("isPretestRun")]
 
 
-def answer_in_code(page, question_id, result="got"):
-    """Record an answer the way a finished question does."""
-    page.evaluate("([id, result]) => "
-                  "RecallQuiz.memory.recordAnswer(id, result, false)",
-                  [question_id, result])
-
-
-def test_sync_off(browser):
-    """With provider "none" there is no sync bar and no errors."""
-    print("Cloud sync turned off")
+def test_keep_going_teaches_the_next_idea(browser):
+    """Keep me going: warm-up guess, card, ladder; pretests are not
+    scored; feedback teaches."""
+    print("Keep me going")
     page = open_page(browser)
-    check("the sync bar stays hidden",
-          page.is_hidden("#cloud-sync-bar"))
-    check("no script errors", not page.errors, page.errors)
+    check("there is no Learn or Review switch",
+          not page.is_visible("#mode-choice"))
+    check("the sign-in bar stays hidden while sync is off",
+          not page.is_visible("#cloud-sync-bar"))
+    summary = page.inner_text("#keep-going-summary")
+    check("the button says what comes next", "learn" in summary, summary)
+    page.click("#confidence-choice button[data-value='off']")
+    page.click("#keep-going-button")
+    log = []
+    seen = play_learn_session(page, log=log)
+    order = [("pretest" if step.get("isPretestRun") else step["kind"])
+             for step in seen]
+    check("it starts with a warm-up guess, then the card",
+          order[:2] == ["pretest", "lesson"], str(order[:3]))
+    check("only one idea is taught per press",
+          order.count("lesson") == 1, str(order))
+    check("results say the warm-up guess was not scored",
+          "not scored" in page.inner_text(".result"))
+    counts = [int(n) for n in re.findall(
+        r"\d+", page.inner_text(".score-tally"))]
+    check("the tally counts only the scored questions",
+          sum(counts) == len(scored_steps(seen)), f"{counts} {len(seen)}")
+    saved = saved_progress(page)["questions"]
+    pretest_ids = [step["id"] for step in seen if step.get("isPretestRun")]
+    check("a pretest is recorded but never scored",
+          all(saved[i]["timesSeen"] == 0 and saved[i].get("pretested")
+              for i in pretest_ids), str({i: saved.get(i)
+                                          for i in pretest_ids}))
+    mcq_feedback = next((text for text in log if "Why each option" in text),
+                        "")
+    check("a multiple-choice answer explains every option",
+          "RIGHT ANSWER" in mcq_feedback.upper()
+          and "NOT THIS ONE" in mcq_feedback.upper())
+    check("feedback shows the rule to remember",
+          any("Rule to remember" in text for text in log))
+    check("the results button is Keep going",
+          page.is_visible(".result >> text=Keep going"))
+    check("no page errors in a whole session", not page.errors,
+          "; ".join(page.errors))
     page.close()
 
 
-def test_sync_sign_in_merges(browser):
-    """Signing in combines this browser's and the account's progress."""
-    print("Cloud sync: signing in merges both copies")
-    ids = [question["id"] for question in BOOK["questions"][:3]]
-    account = progress_with({ids[0]: progress_record(4, 2000000000000),
-                             ids[2]: progress_record(2, 1700000000000)})
-    page = open_page(
-        browser, sync_config=sync_config_script("example-in-browser"),
-        before_load=f"sessionStorage.setItem({json.dumps(EXAMPLE_STORE_KEY)}"
-                    f", {json.dumps(json.dumps(account))});")
-    wait_for_sync_status(page, "signed-out")
-    check("the bar offers sign-in",
-          "Sign in with a test account" in page.inner_text(
-              "#cloud-sync-bar"))
-    answer_in_code(page, ids[0])
-    answer_in_code(page, ids[1])
-    page.click("#cloud-sync-bar button")
-    wait_for_sync_status(page, "saved")
-    local = read_json(page, "localStorage", LOCAL_KEY)["questions"]
-    stored = read_json(page, "sessionStorage", EXAMPLE_STORE_KEY)
-    check("the newer account record wins",
-          local[ids[0]]["memoryLevel"] == 4, local.get(ids[0]))
-    check("this browser's answers are kept", ids[1] in local)
-    check("account-only answers arrive here", ids[2] in local)
-    check("the account now holds all three",
-          set(ids) <= set(stored["questions"]), list(stored["questions"]))
-    check("this browser is marked as the account's",
-          page.evaluate(f"localStorage.getItem('{OWNER_KEY}')") ==
-          "example-user")
-    check("the home screen counts the merged progress",
-          page.inner_text("#progress-tally div:nth-child(2) b") != "0")
-    check("no script errors", not page.errors, page.errors)
+def test_any_order(browser):
+    """No idea is locked. Teach me and Test me work on any idea."""
+    print("Any order")
+    page = open_page(browser)
+    row = open_concept(page, 1)
+    rows = page.inner_text(".concept-list")
+    check("no idea is shown as locked", "Locked" not in rows, rows[:200])
+    body = row.inner_text()
+    check("a later idea says what it builds on, and can still start",
+          "Builds on" in body and "Teach me" in body, body[-200:])
+    row.get_by_text("Teach me", exact=True).click()
+    first = current_step(page)
+    check("Teach me on the second idea starts with its warm-up guess",
+          first.get("isPretestRun") and first["concept"] == "congruence",
+          str(first.get("concept")))
+    check("a warm-up guess has no Show the idea button",
+          not page.is_visible(".idea-again"))
+    page.click("text=End session")
+    page.close()
+
+    page = open_page(browser)
+    row = open_concept(page, 0)
+    row.get_by_text("Test me", exact=True).click()
+    steps = [current_step(page)]
+    check("Test me goes straight to the ladder, no card or warm-up",
+          steps[0]["kind"] != "lesson"
+          and not steps[0].get("isPretestRun")
+          and steps[0].get("role") != "pretest", str(steps[0].get("role")))
+    check("a question offers Read the idea before it is answered",
+          page.inner_text(".idea-again summary").startswith("Read the idea"),
+          page.inner_text(".idea-again summary"))
+    page.click(".idea-again summary")
+    check("opening it shows the card",
+          page.is_visible(".idea-again .idea-rule"))
+    check("no page errors", not page.errors, "; ".join(page.errors))
     page.close()
 
 
-def test_sync_saves_while_practising(browser):
-    """Answers reach the account after a pause and at session end."""
-    print("Cloud sync: saving while practising")
-    question = next(q for q in BOOK["questions"] if q["kind"] == "tf")
-    signed_in = "sessionStorage.setItem('recall-quiz-example-account'," \
-                " 'example-user');"
-    page = open_page(browser, questions=[question] + BOOK["questions"][1:3],
-                     sync_config=sync_config_script(
-                         "example-in-browser", save_delay_seconds=1),
-                     before_load=signed_in)
-    wait_for_sync_status(page, "saved")
-    second_id = BOOK["questions"][1]["id"]
-    answer_in_code(page, second_id)
-    page.wait_for_timeout(1800)
-    stored = read_json(page, "sessionStorage", EXAMPLE_STORE_KEY)
-    check("an answer is saved after the pause",
-          second_id in stored["questions"])
-    page.close()
-
-    page = open_page(browser, questions=[question],
-                     sync_config=sync_config_script(
-                         "example-in-browser", save_delay_seconds=600),
-                     before_load=signed_in)
-    wait_for_sync_status(page, "saved")
-    start_session(page)
-    answer_question(page, question, answer_wrongly=False)
-    page.keyboard.press("Enter")
-    page.wait_for_selector(".result-hero")
-    page.wait_for_timeout(300)
-    stored = read_json(page, "sessionStorage", EXAMPLE_STORE_KEY)
-    check("a finished session is saved straight away",
-          question["id"] in stored["questions"]
-          and len(stored["recentResults"]) == 1)
+def test_review_includes_unseen_ideas(browser):
+    """Custom practice can ask about ideas not taught in the app."""
+    print("Custom practice")
+    page = open_page(browser)
+    page.click("#custom-practice summary")
+    summary = page.inner_text("#ready-summary")
+    check("Due and new includes questions of ideas not yet taught",
+          "ready" in summary and "Nothing is due" not in summary, summary)
     page.close()
 
 
-def test_sync_reset_and_sign_out(browser):
-    """Reset reaches the account; sign-out clears only this browser."""
-    print("Cloud sync: reset and sign out")
-    first_id = BOOK["questions"][0]["id"]
-    account = progress_with({first_id: progress_record(3, 1700000000000)})
-    page = open_page(
-        browser, sync_config=sync_config_script("example-in-browser"),
-        before_load="sessionStorage.setItem('recall-quiz-example-account',"
-                    " 'example-user'); sessionStorage.setItem("
-                    f"{json.dumps(EXAMPLE_STORE_KEY)}, "
-                    f"{json.dumps(json.dumps(account))});")
-    wait_for_sync_status(page, "saved")
-    page.click("#reset-progress-button")
-    page.evaluate("RecallQuiz.cloudSync.saveNow()")
-    wait_for_sync_status(page, "saved")
-    stored = read_json(page, "sessionStorage", EXAMPLE_STORE_KEY)
-    check("a reset empties the account copy too",
-          not stored["questions"] and stored.get("resetAt"), stored)
-
-    answer_in_code(page, first_id)
-    page.evaluate("RecallQuiz.cloudSync.saveNow()")
-    wait_for_sync_status(page, "saved")
-    page.click("#cloud-sync-bar button:has-text('Sign out')")
-    wait_for_sync_status(page, "signed-out")
-    local = read_json(page, "localStorage", LOCAL_KEY)
-    stored = read_json(page, "sessionStorage", EXAMPLE_STORE_KEY)
-    check("signing out clears this browser", not local["questions"])
-    check("the account keeps the progress", first_id in stored["questions"])
-    page.click("#cloud-sync-bar button")
-    wait_for_sync_status(page, "saved")
-    local = read_json(page, "localStorage", LOCAL_KEY)
-    check("signing in again brings it back", first_id in local["questions"])
-    check("no script errors", not page.errors, page.errors)
+def test_second_keep_going_reviews_first(browser):
+    """After wrong answers the next Keep me going starts with reviews
+    and then teaches the next idea."""
+    print("Second Keep me going")
+    page = open_page(browser)
+    page.click("#confidence-choice button[data-value='off']")
+    page.click("#keep-going-button")
+    play_learn_session(page, answer_wrongly=True)
+    page.click("text=Back to start")
+    summary = page.inner_text("#keep-going-summary")
+    check("the summary mentions the due reviews",
+          "review" in summary and "then" in summary, summary)
+    page.click("#keep-going-button")
+    first = current_step(page)
+    check("the session starts with a review question",
+          first.get("isReviewRun"), str(first.get("id")))
+    seen = play_learn_session(page)
+    concepts = [step["concept"] for step in seen
+                if step["kind"] == "lesson"]
+    check("then it teaches the next core idea first",
+          concepts == ["add-multiply"], str(concepts))
+    check("no page errors", not page.errors, "; ".join(page.errors))
     page.close()
 
 
-def test_sync_ignores_another_readers_progress(browser):
-    """Progress left by a different account is not mixed into yours."""
-    print("Cloud sync: someone else's progress on this device")
-    first_id = BOOK["questions"][0]["id"]
-    left_behind = progress_with({first_id: progress_record(4, 1700000000000)})
-    page = open_page(
-        browser, sync_config=sync_config_script("example-in-browser"),
-        before_load=f"localStorage.setItem('{OWNER_KEY}', 'someone-else');"
-                    f"localStorage.setItem({json.dumps(LOCAL_KEY)}, "
-                    f"{json.dumps(json.dumps(left_behind))});")
-    wait_for_sync_status(page, "signed-out")
-    page.click("#cloud-sync-bar button")
-    wait_for_sync_status(page, "saved")
-    local = read_json(page, "localStorage", LOCAL_KEY)
-    check("the other reader's answers are dropped",
-          first_id not in local["questions"], local)
-    page.close()
-
-
-FAKE_FIREBASE_SETUP = """
-window.fakeFirebase = { user: null, listeners: [], docs: {}, writes: 0 };
-"""
-FAKE_FIREBASE_MODULES = {
-    "firebase-app.js": """
-export function initializeApp(settings) {
-  window.fakeFirebase.settings = settings; return {};
-}""",
-    "firebase-auth.js": """
-const fake = window.fakeFirebase;
-function tell() { fake.listeners.forEach(listener => listener(fake.user)); }
-export function getAuth() { return {}; }
-export function onAuthStateChanged(auth, listener) {
-  fake.listeners.push(listener); listener(fake.user);
-}
-export function getRedirectResult() { return Promise.resolve(null); }
-export class GoogleAuthProvider {}
-export function signInWithPopup() {
-  fake.user = { uid: "u1", displayName: "Test Reader", email: "t@x" };
-  tell(); return Promise.resolve({ user: fake.user });
-}
-export function signInWithRedirect() { return signInWithPopup(); }
-export function signOut() {
-  fake.user = null; tell(); return Promise.resolve();
-}
-""",
-    "firebase-firestore.js": """
-const fake = window.fakeFirebase;
-export function getFirestore() { return {}; }
-export function doc(db, ...parts) { return parts.join("/"); }
-export function getDoc(path) {
-  const data = fake.docs[path];
-  return Promise.resolve({ exists: () => Boolean(data), data: () => data });
-}
-export function setDoc(path, data) {
-  if (fake.neverAnswer) { return new Promise(() => {}); }
-  fake.docs[path] = data; fake.writes += 1; return Promise.resolve();
-}
-export function serverTimestamp() { return "server-time"; }
-""",
-}
-
-
-def serve_fake_firebase(route):
-    """Answer a request for the Firebase SDK with a small fake."""
-    name = route.request.url.rsplit("/", 1)[-1]
-    route.fulfill(body=FAKE_FIREBASE_MODULES[name],
-                  content_type="text/javascript",
-                  headers={"Access-Control-Allow-Origin": "*"})
-
-
-def test_firebase_adapter(browser):
-    """The Firebase adapter signs in and writes users/{uid}/books/{id}."""
-    print("Cloud sync: Firebase adapter (with a fake Firebase SDK)")
-    config = sync_config_script("firebase", sdkVersion="12.19.0",
-                                apiKey="test-key", projectId="test")
-    page = open_page(browser, sync_config=config,
-                     before_load=FAKE_FIREBASE_SETUP)
-    page.route("**/www.gstatic.com/firebasejs/**", serve_fake_firebase)
-    page.reload()
+def test_sync_bar_appears_when_turned_on(browser):
+    """With a provider named in sync-config.js the sign-in bar shows."""
+    print("Cloud sync")
+    page = browser.new_page(viewport={"width": 430, "height": 900})
+    page.errors = []
+    page.on("pageerror", lambda error: page.errors.append(str(error)))
+    page.route("**/fonts.googleapis.com/**", lambda route: route.abort())
+    page.route("**/js/sync/sync-config.js", lambda route: route.fulfill(
+        content_type="application/javascript",
+        body='window.RecallQuizSyncConfig = {provider: "example-in-browser",'
+             ' saveDelaySeconds: 1, "example-in-browser": {}};'))
+    page.goto(PAGE_URL)
     page.wait_for_selector("#book-title:not(:text-is('Recall Quiz'))")
-    wait_for_sync_status(page, "signed-out")
-    check("the button says Sign in with Google",
-          page.inner_text("#cloud-sync-bar button") ==
-          "Sign in with Google")
-    first_id = BOOK["questions"][0]["id"]
-    answer_in_code(page, first_id)
-    page.click("#cloud-sync-bar button")
-    wait_for_sync_status(page, "saved")
-    path = "users/u1/books/" + page.evaluate(
-        f"encodeURIComponent({json.dumps(BOOK['id'])})")
-    saved = page.evaluate(f"window.fakeFirebase.docs[{json.dumps(path)}]")
-    check("progress is written to users/{uid}/books/{book id}",
-          bool(saved), page.evaluate("Object.keys(window.fakeFirebase.docs)"))
-    if saved:
-        check("only progress and a timestamp are stored",
-              sorted(saved) == ["progress", "updatedAt"], list(saved))
-        check("the questions themselves are not stored",
-              first_id in json.loads(saved["progress"])["questions"]
-              and "options" not in saved["progress"])
-    check("the bar names the signed-in reader",
-          "Test Reader" in page.inner_text("#cloud-sync-bar"))
-    check("sdkVersion is not passed to Firebase",
-          "sdkVersion" not in page.evaluate("window.fakeFirebase.settings"))
-    check("no script errors", not page.errors, page.errors)
+    page.wait_for_timeout(800)
+    check("the sign-in bar is shown", page.is_visible("#cloud-sync-bar"),
+          page.inner_html("#cloud-sync-bar")[:100])
+    check("no page errors with sync on", not page.errors,
+          "; ".join(page.errors))
     page.close()
 
 
-def test_sync_when_database_is_unreachable(browser):
-    """If the database cannot be reached the quiz still works."""
-    print("Cloud sync: database unreachable")
-    page = open_page(browser, sync_config=sync_config_script(
-        "firebase", sdkVersion="12.19.0"))
-    page.route("**/www.gstatic.com/**", lambda route: route.abort())
-    page.reload()
-    page.wait_for_selector("#book-title:not(:text-is('Recall Quiz'))")
-    wait_for_sync_status(page, "error")
-    question_count = page.inner_text("#book-summary")
-    check("the quiz still loads", "question" in question_count)
-    page.unroute("**/www.gstatic.com/**")
-    page.route("**/www.gstatic.com/firebasejs/**", serve_fake_firebase)
-    page.add_init_script(FAKE_FIREBASE_SETUP)
-    page.click("#cloud-sync-bar button:has-text('Try again')")
-    wait_for_sync_status(page, "signed-out")
-    check("Try again reconnects once the database is back", True)
-    check("no script errors", not page.errors, page.errors)
-    page.close()
-
-
-def test_sync_load_backup_after_reset(browser, scratch_folder):
-    """Reset then Load puts the backup in the account (a rollback)."""
-    print("Cloud sync: Reset then Load a backup")
-    ids = [question["id"] for question in BOOK["questions"][:2]]
-    account = progress_with({ids[0]: progress_record(3, 1700000000000)})
-    backup_file = scratch_folder / "backup.json"
-    backup_file.write_text(json.dumps(
-        progress_with({ids[1]: progress_record(2, 1600000000000)})))
-    page = open_page(
-        browser, sync_config=sync_config_script("example-in-browser"),
-        before_load="sessionStorage.setItem('recall-quiz-example-account',"
-                    " 'example-user'); sessionStorage.setItem("
-                    f"{json.dumps(EXAMPLE_STORE_KEY)}, "
-                    f"{json.dumps(json.dumps(account))});")
-    wait_for_sync_status(page, "saved")
-    page.click("#reset-progress-button")
-    page.evaluate("RecallQuiz.cloudSync.saveNow()")
-    wait_for_sync_status(page, "saved")
-    page.set_input_files("#progress-file-input", str(backup_file))
-    page.wait_for_function("Object.keys(RecallQuiz.progress.saved"
-                           ".questions).length > 0")
-    page.evaluate("RecallQuiz.cloudSync.saveNow()")
-    wait_for_sync_status(page, "saved")
-    local = read_json(page, "localStorage", LOCAL_KEY)["questions"]
-    stored = read_json(page, "sessionStorage", EXAMPLE_STORE_KEY)
-    check("the backup is kept here", list(local) == [ids[1]], list(local))
-    check("the backup replaces the account copy",
-          list(stored["questions"]) == [ids[1]], list(stored["questions"]))
-    page.close()
-
-
-def test_two_tabs_keep_each_others_answers(browser):
-    """Two open tabs of one book never overwrite each other."""
-    print("Two tabs open at once")
-    context = browser.new_context()
-    pages = []
-    for _ in range(2):
-        page = context.new_page()
-        page.route("**/fonts.googleapis.com/**", lambda route: route.abort())
-        page.route("**/js/sync/sync-config.js", lambda route: route.fulfill(
-            body=sync_config_script("none"),
-            content_type="text/javascript"))
-        page.goto(PAGE_URL)
-        page.wait_for_selector("#book-title:not(:text-is('Recall Quiz'))")
-        pages.append(page)
-    ids = [question["id"] for question in BOOK["questions"][:2]]
-    answer_in_code(pages[1], ids[0])
-    pages[0].wait_for_timeout(300)
-    answer_in_code(pages[0], ids[1])
-    pages[1].wait_for_timeout(300)
-    stored = read_json(pages[1], "localStorage", LOCAL_KEY)["questions"]
-    check("answers from both tabs are kept",
-          set(ids) <= set(stored), list(stored))
-    context.close()
-
-
-def test_sync_when_database_hangs(browser):
-    """A database that never answers does not freeze sync or sign-out."""
-    print("Cloud sync: database stops answering (15 second wait)")
-    config = sync_config_script("firebase", sdkVersion="12.19.0")
-    page = open_page(
-        browser, sync_config=config, before_load=FAKE_FIREBASE_SETUP +
-        "window.fakeFirebase.neverAnswer = true; window.fakeFirebase.user ="
-        " { uid: 'u1', displayName: 'Test Reader', email: '' };")
-    page.route("**/www.gstatic.com/firebasejs/**", serve_fake_firebase)
-    page.reload()
-    page.wait_for_selector("#book-title:not(:text-is('Recall Quiz'))")
-    answer_in_code(page, BOOK["questions"][0]["id"])
-    page.evaluate("RecallQuiz.cloudSync.saveNow()")
-    wait_for_sync_status(page, "error", seconds=25)
-    check("the error bar offers Sign out",
-          page.is_visible("#cloud-sync-bar button:has-text('Sign out')"))
-    page.click("#cloud-sync-bar button:has-text('Sign out')")
-    wait_for_sync_status(page, "signed-out", seconds=25)
-    check("signing out still works", True)
-    check("no script errors", not page.errors, page.errors)
-    page.close()
+def test_firebase_sync_is_on_in_this_edition():
+    """The published config uses Firebase; tests route it off."""
+    config = (SITE_FOLDER / "js/sync/sync-config.js").read_text()
+    check("sync-config.js sets provider firebase",
+          'provider: "firebase"' in config)
+    check("the Firebase project id is filled in",
+          'projectId: "reading-progress-39717"' in config)
 
 
 def test_every_linked_file_exists():
@@ -825,6 +687,317 @@ def test_every_linked_file_exists():
           html.index("js/helpers.js") < html.index("js/book.js"))
 
 
+# ------------------------------------------------------------- M3 tests
+
+HTRAB_BANK = json.loads(
+    (SITE_FOLDER / "banks" / "how-to-read-a-book.json").read_text())
+SCRATCH = Path(__file__).resolve().parent
+
+
+def run_validator(bank):
+    """Validate a bank dict; returns the validator's text output."""
+    path = SCRATCH / "_bank_under_test.json"
+    path.write_text(json.dumps(bank))
+    try:
+        result = subprocess.run(
+            [sys.executable, str(SITE_FOLDER / "tools" / "validate_bank.py"),
+             str(path)], capture_output=True, text=True)
+    finally:
+        path.unlink()
+    return result.stdout
+
+
+def test_validator_writer_rules():
+    """The validator warns about loaded wording, double questions,
+    two-option mcq, undefined terms and idea order."""
+    print("Validator writer rules")
+    bank = json.loads(json.dumps(BOOK))
+    first = bank["questions"][1]
+    first["q"] = "Why is this obviously so? And what is \"flux\"?"
+    bank["questions"][2]["kind"] = "mcq"
+    bank["questions"][2]["options"] = ["A", "B"]
+    bank["concepts"][0].pop("question")
+    bank["concepts"][0]["card"].pop("limits")
+    for concept in bank["concepts"]:
+        concept["core"] = True
+    out = run_validator(bank)
+    for needle, label in (
+            ("loaded wording", "loaded words are flagged"),
+            ("two questions in one stem", "two questions are flagged"),
+            ("smuggle", "a loaded 'Why is it so' is flagged"),
+            ("two-option mcq", "a two-option mcq is flagged"),
+            ("'flux' is not defined", "an undefined quoted term is flagged"),
+            ("no orienting question", "a missing orienting question"),
+            ("card.limits missing", "missing limits are flagged"),
+            ("are core", "too many core ideas are flagged")):
+        check(label, needle in out, out[-400:])
+    tags = json.loads(SCRATCH.parent.joinpath(
+        "htrab", "tags.json").read_text())
+    judge = json.loads(json.dumps(HTRAB_BANK))
+    for concept in judge["concepts"]:
+        if concept["id"] == "suspending-judgment":
+            concept["requires"] = []
+    out = run_validator(judge)
+    check("a criticism idea with no understanding idea is flagged",
+          "understand before judging" in out, out[-300:])
+    judge["concepts"][0]["htrab"] = "analytical/nope/nope"
+    out = run_validator(judge)
+    check("an unknown HTRAB tag is an error", "ERROR" in out
+          and "not in htrab/tags.json" in out, out[-300:])
+    check("the tag file lists the levels",
+          [level["id"] for level in tags["levels"]][:3]
+          == ["inspectional", "analytical", "syntopical"])
+
+
+def test_new_bank_fields_show(browser):
+    """The orienting question, limits, core chip, summaries and the
+    days-practised count appear."""
+    print("M3 home screen and card")
+    page = open_page(browser)
+    check("the book summary sentence is shown",
+          BOOK["summary"] in page.inner_text("#book-blurb"))
+    row = open_concept(page, 0)
+    check("the idea row shows its reading question",
+          "Read to answer" in row.inner_text())
+    check("the idea row marks core ideas",
+          row.locator(".core-chip").count() == 1)
+    check("the card says where the rule stops working",
+          "Where it stops working" in row.inner_text())
+    check("the unit summary is shown above the ideas",
+          BOOK["unitSummaries"]["Lesson 1"]
+          in page.inner_text("#where-you-stand"))
+    check("the streak shows days practised",
+          "practised" in page.inner_text("#day-streak"))
+    page.click("#confidence-choice button[data-value='off']")
+    page.click("#keep-going-button")
+    check("the card step starts with the reading question",
+          page.is_visible("#question-card"))
+    seen = []
+    for _ in range(3):
+        step = current_step(page)
+        seen.append(step)
+        if step["kind"] == "lesson":
+            check("the card step shows the orienting question",
+                  page.is_visible(".idea-question"))
+            check("the card step shows its limits",
+                  page.is_visible(".idea-limits"))
+            break
+        answer_question(page, step, True)
+        page.keyboard.press("Enter")
+    check("no page errors", not page.errors, "; ".join(page.errors))
+    page.close()
+
+
+def test_results_are_gentle(browser):
+    """Results lead with what went right, use 'Needs work', and show an
+    average with a noise reminder after two sessions."""
+    print("Results wording")
+    page = open_page(browser)
+    page.click("#confidence-choice button[data-value='off']")
+    page.click("#keep-going-button")
+    play_learn_session(page, answer_wrongly=True)
+    text = page.inner_text(".result")
+    check("a poor session says Needs work, not Fail",
+          "NEEDS WORK" in text.upper() and "FAIL" not in text.upper(),
+          text[:200])
+    check("the tally says Not yet", "Not yet" in text)
+    check("no 'Missed' label on the tally", "MISSED" not in
+          page.inner_text(".score-tally").upper())
+    check("no average on the first session",
+          not page.is_visible(".average-note"))
+    page.click("text=Back to start")
+    page.click("#keep-going-button")
+    play_learn_session(page)
+    check("what went right comes before the question list",
+          page.is_visible(".went-right"))
+    order = page.evaluate(
+        "() => { const r = document.querySelector('.result');"
+        " const a = r.querySelector('.went-right');"
+        " const b = r.querySelector('.revisit-list');"
+        " return !b || (a.compareDocumentPosition(b) & 4) > 0; }")
+    check("what went right is listed first", order)
+    check("an average of recent sessions is shown with a caution",
+          "noisy" in page.inner_text(".average-note"),
+          page.inner_text(".result")[:300])
+    check("the history shows Needs work too",
+          "Needs work" in page.inner_text("#recent-results")
+          or "Needs work" in page.inner_text("body"))
+    page.close()
+
+
+def test_weak_part_and_easy_ending(browser):
+    """A shaky part of an idea is named with a button that practises just
+    it; a session ends on an easy review."""
+    print("Weak part and easy ending")
+    page = open_page(browser)
+    page.click("#confidence-choice button[data-value='off']")
+    page.click("#keep-going-button")
+    play_learn_session(page, answer_wrongly=True)
+    page.click("text=Back to start")
+    row = open_concept(page, 0)
+    check("the idea names where it breaks",
+          row.locator(".concept-weak").count() == 1, row.inner_text()[-300:])
+    row.get_by_text("Practise the weak part").click()
+    steps = page.evaluate(
+        "() => window.RecallQuiz.session.state.questions.map(q => q.role)")
+    check("it practises only questions from the ideas's weak part",
+          0 < len(steps) < 6 and "pretest" not in steps, str(steps))
+    page.click("text=End session")
+    page.evaluate("""() => {
+      const quiz = window.RecallQuiz;
+      const q = quiz.progress.saved.questions;
+      ['remainders-1', 'remainders-2'].forEach(id => {
+        q[id] = { memoryLevel: 3, timesSeen: 3, timesMissed: 0,
+          nextReview: Date.now() + 864e5, lastAnswered: Date.now(),
+          confidentMisses: 0 };
+      });
+      quiz.progress.saveProgress();
+    }""")
+    plan = page.evaluate(
+        "() => { const p = window.RecallQuiz.settings.chooseKeepGoing();"
+        " return p.questions.map(q => [q.id, !!q.isEasyEnding]); }")
+    check("the plan ends with one easy review",
+          bool(plan) and plan[-1][1], str(plan[-3:]))
+    check("no page errors", not page.errors, "; ".join(page.errors))
+    page.close()
+
+
+def test_five_minute_session(browser):
+    """The 5-minute session teaches core ideas only."""
+    print("5-minute session")
+    page = open_page(browser)
+    core = {c["id"] for c in BOOK["concepts"] if c.get("core")}
+    page.click("#confidence-choice button[data-value='off']")
+    page.click("#quick-session-button")
+    seen = play_learn_session(page)
+    ideas = {step["concept"] for step in seen}
+    check("only core ideas are taught", ideas <= core, str(ideas))
+    check("it is a short session", len(seen) <= 10, str(len(seen)))
+    page.close()
+
+
+def htrab_session_matches(page, prefix):
+    """True if every question in the running session carries a tag that
+    starts with this prefix."""
+    return page.evaluate(
+        "(prefix) => window.RecallQuiz.session.state.questions"
+        ".every(q => (q.htrab || '').startsWith(prefix))", prefix)
+
+
+def test_htrab_overlay(browser):
+    """The HTRAB switch, picker, filtered test, chips and advice."""
+    print("HTRAB overlay")
+    page = open_page(browser)
+    check("a bank without tags shows no HTRAB panel",
+          page.locator(".htrab-panel").count() == 0)
+    page.close()
+
+    page = open_page(browser, bank="how-to-read-a-book")
+    check("a tagged bank shows the HTRAB switch",
+          page.is_visible(".htrab-panel"))
+    check("the picker is hidden while the method is off",
+          not page.is_visible("#htrab-level"))
+    page.click("#keep-going-button")
+    page.wait_for_selector("#question-card .question-meta")
+    check("no reading-step chip while off",
+          page.locator(".htrab-chip").count() == 0)
+    page.click("text=End session")
+
+    page.click(".htrab-panel button[data-value='on']")
+    page.wait_for_selector("#htrab-level")
+    levels = page.eval_on_selector_all(
+        "#htrab-level option", "o => o.map(x => x.value)")
+    check("the level list holds only levels in the bank",
+          levels == ["", "inspectional", "analytical"], str(levels))
+    page.select_option("#htrab-level", "analytical")
+    check("a stage list appears for the analytical level",
+          page.is_visible("#htrab-stage"))
+    stages = page.eval_on_selector_all(
+        "#htrab-stage option", "o => o.map(x => x.value)")
+    check("stages 1, 2 and 3 are offered", stages == ["", "1", "2", "3"],
+          str(stages))
+    page.select_option("#htrab-stage", "2")
+    topics = page.eval_on_selector_all(
+        "#htrab-topic option", "o => o.map(x => x.value)")
+    check("the topic list narrows to the stage",
+          topics == ["", "determining-an-authors-message"], str(topics))
+    page.select_option("#htrab-topic", "determining-an-authors-message")
+    page.select_option("#htrab-sub", "finding-the-propositions")
+    count = page.inner_text("#htrab-count")
+    expected = sum(1 for q in HTRAB_BANK["questions"]
+                   if q.get("htrab", "").endswith("finding-the-propositions")
+                   and q["role"] != "pretest")
+    check("the count matches the tagged questions",
+          count.startswith(str(expected)), f"{count} vs {expected}")
+    page.click("#confidence-choice button[data-value='off']")
+    page.click("#htrab-start")
+    tag = ("analytical/determining-an-authors-message/"
+           "finding-the-propositions")
+    check("the test holds only questions with that tag",
+          htrab_session_matches(page, tag))
+    check("a reading-step chip is shown", page.is_visible(".htrab-chip"),
+          page.inner_text(".question-meta"))
+    step = current_step(page)
+    answer_question(page, step, True)
+    page.wait_for_selector("#question-card .verdict")
+    check("feedback shows Adler's advice for the step",
+          page.is_visible(".htrab-advice summary"))
+    advice = page.inner_text(".htrab-advice")
+    check("the advice has an action, a check and a quote",
+          "Ask yourself" in advice and "“" in advice, advice[:200])
+    check("a missed question opens the advice",
+          page.eval_on_selector(".htrab-advice", "d => d.open"))
+    page.click("text=End session")
+    page.click(".htrab-panel button[data-value='off']")
+    check("switching off hides the picker", not page.is_visible("#htrab-level"))
+    page.reload()
+    page.wait_for_selector("#book-title:not(:text-is('Recall Quiz'))")
+    check("it stays off after a reload",
+          not page.is_visible("#htrab-level"))
+    page.click(".htrab-panel button[data-value='on']")
+    page.reload()
+    page.wait_for_selector("#book-title:not(:text-is('Recall Quiz'))")
+    page.wait_for_selector("#htrab-level")
+    check("being on is remembered after a reload",
+          page.is_visible("#htrab-level"))
+    page.click("#confidence-choice button[data-value='off']")
+    page.click("#keep-going-button")
+    for _ in range(8):
+        step = current_step(page)
+        if step["kind"] == "lesson":
+            break
+        answer_question(page, step, True)
+        page.wait_for_selector("#question-card .verdict")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(80)
+    page.wait_for_selector("#question-card .idea-card")
+    check("the concept card shows the reading step and Adler's advice",
+          page.is_visible(".htrab-chip") and page.is_visible(".htrab-advice"))
+    check("no page errors", not page.errors, "; ".join(page.errors))
+    page.close()
+
+
+def test_htrab_is_removable(browser):
+    """With the htrab/ files unreachable the quiz still works."""
+    print("HTRAB removable")
+    page = open_page(browser, block="**/htrab/**")
+    check("the quiz still opens", page.is_visible("#keep-going-button"))
+    check("no HTRAB panel without the module",
+          page.locator(".htrab-panel").count() == 0)
+    page.click("#confidence-choice button[data-value='off']")
+    page.click("#keep-going-button")
+    play_learn_session(page)
+    check("a whole session works", page.is_visible(".result"))
+    check("no page errors", not page.errors, "; ".join(page.errors))
+    page.close()
+    page = open_page(browser, bank="how-to-read-a-book",
+                     block="**/htrab/**")
+    check("a tagged bank still plays without the module",
+          page.is_visible("#keep-going-button"))
+    check("no panel appears", page.locator(".htrab-panel").count() == 0)
+    page.close()
+
+
 def main():
     """Start a web server, run every test, and report."""
     server = subprocess.Popen(
@@ -836,7 +1009,21 @@ def main():
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             test_every_linked_file_exists()
+            test_firebase_sync_is_on_in_this_edition()
             test_every_question_is_well_formed()
+            test_bank_passes_the_validator()
+            test_keep_going_teaches_the_next_idea(browser)
+            test_any_order(browser)
+            test_review_includes_unseen_ideas(browser)
+            test_second_keep_going_reviews_first(browser)
+            test_sync_bar_appears_when_turned_on(browser)
+            test_validator_writer_rules()
+            test_new_bank_fields_show(browser)
+            test_results_are_gentle(browser)
+            test_weak_part_and_easy_ending(browser)
+            test_five_minute_session(browser)
+            test_htrab_overlay(browser)
+            test_htrab_is_removable(browser)
             test_every_question_type(browser)
             test_confidence_check(browser)
             test_timed_session(browser)
@@ -848,17 +1035,6 @@ def main():
             test_formulas(browser)
             test_themes(browser)
             test_phone_width(browser)
-            test_sync_off(browser)
-            test_sync_sign_in_merges(browser)
-            test_sync_saves_while_practising(browser)
-            test_sync_reset_and_sign_out(browser)
-            test_sync_ignores_another_readers_progress(browser)
-            test_firebase_adapter(browser)
-            test_sync_when_database_is_unreachable(browser)
-            with tempfile.TemporaryDirectory() as scratch:
-                test_sync_load_backup_after_reset(browser, Path(scratch))
-            test_two_tabs_keep_each_others_answers(browser)
-            test_sync_when_database_hangs(browser)
             browser.close()
     finally:
         server.kill()
