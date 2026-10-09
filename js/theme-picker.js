@@ -29,17 +29,22 @@
     ? window.matchMedia("(prefers-color-scheme: dark)")
     : null;
 
-  /** The reader's choice: theme id and light / dark / system */
+  const MODES = ["light", "dark", "system"];
+
+  /** The reader's choice: theme id and light / dark / system, and when
+      they last picked it (0 if never; cloud sync keeps the newest) */
   const choice = readSavedChoice();
 
-  /** @returns {{themeId: string, mode: string}} */
+  /** @returns {{themeId: string, mode: string, at: number}} */
   function readSavedChoice() {
-    const saved = { themeId: DEFAULT_THEME, mode: DEFAULT_MODE };
+    const saved = { themeId: DEFAULT_THEME, mode: DEFAULT_MODE, at: 0 };
     try {
-      // Stored as {t: themeId, m: mode} to stay compatible with old saves.
+      // Stored as {t: themeId, m: mode, a: picked-at}; old saves have
+      // no "a".
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
       saved.themeId = stored.t || saved.themeId;
       saved.mode = stored.m || saved.mode;
+      saved.at = Number(stored.a) || 0;
     } catch (storageError) {
       // Storage blocked: use the defaults.
     }
@@ -59,7 +64,7 @@
   /** Remember the choice in this browser (for every book on the site). */
   function saveChoice() {
     try {
-      const stored = { t: choice.themeId, m: choice.mode };
+      const stored = { t: choice.themeId, m: choice.mode, a: choice.at };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
     } catch (storageError) {
       // Storage blocked: the choice lasts until the tab is closed.
@@ -81,6 +86,35 @@
     pageRoot.setAttribute("data-scheme", shouldBeDark() ? "dark" : "light");
     saveChoice();
     markPressedButtons();
+  }
+
+  /**
+   * The reader picked a theme or mode: stamp the time, apply it and tell
+   * cloud sync (it listens for recallquiz:theme-changed).
+   */
+  function applyChoiceFromReader() {
+    choice.at = Date.now();
+    applyChoice();
+    document.dispatchEvent(new CustomEvent("recallquiz:theme-changed"));
+  }
+
+  /**
+   * Use a choice saved in the reader's account if it is newer than the
+   * one in this browser.
+   * @param {{themeId: string, mode: string, at: number}} remote
+   * @returns {boolean} true if it was used
+   */
+  function useRemoteChoice(remote) {
+    const isValid = remote && themes.some(isTheme(remote.themeId)) &&
+      MODES.includes(remote.mode);
+    if (!isValid || !(remote.at > choice.at)) {
+      return false;
+    }
+    choice.themeId = remote.themeId;
+    choice.mode = remote.mode;
+    choice.at = remote.at;
+    applyChoice();
+    return true;
   }
 
   /** Show which mode button and which tile are chosen. */
@@ -130,7 +164,7 @@
     tile.appendChild(createPart("div", "tile-name", themeName));
     tile.addEventListener("click", function chooseTheme() {
       choice.themeId = themeId;
-      applyChoice();
+      applyChoiceFromReader();
     });
     return tile;
   }
@@ -182,7 +216,7 @@
       function connectModeButton(button) {
         button.addEventListener("click", function chooseMode() {
           choice.mode = button.getAttribute("data-theme-mode");
-          applyChoice();
+          applyChoiceFromReader();
         });
       });
     themeButton.addEventListener("click", function togglePanel() {
@@ -198,6 +232,14 @@
     }
     applyChoice();
   }
+
+  /** Lets js/sync/cloud-sync.js save and restore the choice. */
+  window.RecallQuizTheme = {
+    read: function readChoice() {
+      return { themeId: choice.themeId, mode: choice.mode, at: choice.at };
+    },
+    useRemote: useRemoteChoice,
+  };
 
   applyChoice();          // before the page is drawn
   loadThemeFonts();

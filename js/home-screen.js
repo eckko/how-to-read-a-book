@@ -6,8 +6,8 @@
 (function setUpHomeScreen(quiz) {
   "use strict";
 
-  const { findElement, createElement, countWithWord, formatOneDecimal } =
-    quiz.helpers;
+  const { findElement, createElement, createButton, countWithWord,
+    formatOneDecimal } = quiz.helpers;
 
   /** Length of the progress ring's circle (2 * pi * radius 42) */
   const RING_CIRCUMFERENCE = 263.9;
@@ -221,13 +221,88 @@
 
   // ---------------------------------------------------------- gaps
 
-  /** Progress per chapter, opening up to progress per topic. */
+  /** Where the chosen view (structure or ideas) is remembered. */
+  const VIEW_STORAGE_KEY = "recall-quiz-home-view";
+  const VIEWS = ["structure", "ideas"];
+
+  /**
+   * The view for the chapter list: ?view=ideas in the address wins,
+   * then the choice saved in this browser, then "structure".
+   * @returns {"structure"|"ideas"}
+   */
+  function currentView() {
+    const wanted = new URLSearchParams(window.location.search).get("view");
+    if (VIEWS.includes(wanted)) {
+      return wanted;
+    }
+    try {
+      const saved = localStorage.getItem(VIEW_STORAGE_KEY);
+      return VIEWS.includes(saved) ? saved : "structure";
+    } catch (storageError) {
+      return "structure";
+    }
+  }
+
+  /**
+   * Remember the chosen view and redraw the list.
+   * @param {"structure"|"ideas"} view
+   */
+  function chooseView(view) {
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, view);
+    } catch (storageError) {
+      // Storage blocked: the choice lasts until the page is reloaded.
+    }
+    chosenView = view;
+    showWhereYouStand();
+  }
+
+  /** The view picked in this page, or null before the first pick. */
+  let chosenView = null;
+
+  /**
+   * The two buttons that switch between the chapter structure and the
+   * ideas.
+   * @param {"structure"|"ideas"} view  the view showing now
+   * @returns {HTMLElement}
+   */
+  function createViewSwitch(view) {
+    const group = createElement("div", "choice-group view-switch");
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", "How to list this book");
+    [["structure", "Chapter structure"], ["ideas", "Ideas"]].forEach(
+      function addButton(entry) {
+        const button = createButton(entry[1], "", function pick() {
+          chooseView(entry[0]);
+        });
+        button.setAttribute("data-view", entry[0]);
+        button.setAttribute("aria-pressed", String(entry[0] === view));
+        group.appendChild(button);
+      });
+    return group;
+  }
+
+  /**
+   * Progress per chapter, opening up to progress per topic. A switch
+   * chooses between the chapter structure (chapters, then their topics,
+   * with the ideas inside each topic) and a plain list of ideas.
+   */
   function showWhereYouStand() {
     const panel = findElement("where-you-stand");
     const labels = quiz.book.labels;
+    const view = chosenView || currentView();
+    const hasIdeas = quiz.learning.hasConcepts();
     panel.textContent = "";
     panel.appendChild(createElement("h2", null,
-      quiz.learning.hasConcepts() ? "Your ideas" : "Where you stand"));
+      view === "ideas" ? "Your ideas" : "Where you stand"));
+    panel.appendChild(createViewSwitch(view));
+    if (view === "ideas" && !hasIdeas) {
+      panel.appendChild(createElement("p", "empty-note",
+        "This book has questions but no teaching ideas, so there is " +
+        "nothing to list here. Switch to Chapter structure to see " +
+        "your progress."));
+      return;
+    }
     const hasAnsweredAny =
       Object.keys(quiz.progress.saved.questions).length > 0;
     if (!hasAnsweredAny) {
@@ -236,10 +311,10 @@
         " and topics will fill in here, with the weak ones marked."));
     }
     quiz.book.unitIds.forEach(function addUnit(unitId) {
-      panel.appendChild(createUnitProgress(unitId));
+      panel.appendChild(createUnitProgress(unitId, view));
     });
     panel.appendChild(createElement("p", "note",
-      quiz.learning.hasConcepts() ? ideasNoteText() :
+      hasIdeas ? ideasNoteText() :
         "Solid means answered right several times with growing gaps. " +
         "Open a " + labels.unit.toLowerCase() + " to see its topics. " +
         "Topics in red are ones you have missed."));
@@ -256,11 +331,12 @@
   }
 
   /**
-   * A chapter row (click to open) with its topics inside.
+   * A chapter row (click to open) with its topics or ideas inside.
    * @param {string} unitId
+   * @param {"structure"|"ideas"} view
    * @returns {HTMLElement}
    */
-  function createUnitProgress(unitId) {
+  function createUnitProgress(unitId, view) {
     const questions = quiz.book.questionsInUnit(unitId);
     const percentSolid = percentSolidOf(questions);
     const details = createElement("details", "unit-progress");
@@ -278,10 +354,66 @@
     if (unitSummary) {
       details.appendChild(createElement("p", "unit-summary", unitSummary));
     }
-    details.appendChild(quiz.learning.hasConcepts()
-      ? createConceptList(unitId)
-      : createTopicList(questions));
+    details.appendChild(createUnitBody(unitId, questions, view));
     return details;
+  }
+
+  /**
+   * What a chapter opens to: a flat list of ideas (ideas view), the
+   * topics with their ideas inside (structure view of a book with
+   * ideas), or just the topics (a book without ideas).
+   * @param {string} unitId
+   * @param {object[]} questions  the chapter's questions
+   * @param {"structure"|"ideas"} view
+   * @returns {HTMLElement}
+   */
+  function createUnitBody(unitId, questions, view) {
+    if (!quiz.learning.hasConcepts()) {
+      return createTopicList(questions);
+    }
+    return view === "ideas"
+      ? createConceptList(unitId)
+      : createStructureList(unitId, questions);
+  }
+
+  /**
+   * The topics (book sub-headings) of a chapter, each opening to the
+   * ideas that belong to it.
+   * @param {string} unitId
+   * @param {object[]} questions  the chapter's questions
+   * @returns {HTMLElement}
+   */
+  function createStructureList(unitId, questions) {
+    const list = createElement("div", "section-list");
+    groupBySection(questions).forEach(function addSection(topic) {
+      list.appendChild(createSectionRow(unitId, topic));
+    });
+    return list;
+  }
+
+  /**
+   * One topic: name, missed count and progress; opens to its ideas.
+   * @param {string} unitId
+   * @param {{section: string, questions: object[]}} topic
+   * @returns {HTMLElement}
+   */
+  function createSectionRow(unitId, topic) {
+    const missCount = topic.questions.reduce(
+      function addMisses(total, question) {
+        return total + quiz.memory.timesMissed(question.id);
+      }, 0);
+    const percentSolid = percentSolidOf(topic.questions);
+    const row = createElement("details", "section-row");
+    const summary = createElement("summary");
+    summary.appendChild(createElement("span",
+      "section-name" + (missCount ? " is-weak" : ""),
+      topic.section + (missCount ? " (missed " + missCount + "x)" : "")));
+    summary.appendChild(createProgressBar(percentSolid));
+    summary.appendChild(
+      createElement("div", "percent", percentSolid + "%"));
+    row.appendChild(summary);
+    row.appendChild(createConceptList(unitId, topic.section));
+    return row;
   }
 
   // ---------------------------------------------------------- concepts
@@ -299,15 +431,18 @@
   }
 
   /**
-   * The ideas of one chapter, each opening to its card and a button.
+   * The ideas of one chapter (or of one topic in it), each opening to
+   * its card and a button.
    * @param {string} unitId
+   * @param {string} [section]  keep only the ideas of this topic
    * @returns {HTMLElement}
    */
-  function createConceptList(unitId) {
+  function createConceptList(unitId, section) {
     const list = createElement("ul", "concept-list");
     quiz.learning.concepts()
       .filter(function inUnit(concept) {
-        return concept.unit === unitId;
+        return concept.unit === unitId &&
+          (section === undefined || concept.section === section);
       })
       .forEach(function addConcept(concept) {
         const item = createElement("li");

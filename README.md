@@ -382,7 +382,7 @@ Saved in the browser under `recall-quiz:<book id>`, with readable names
 (`memoryLevel`, `nextReview`, ...). The format is described at the top of
 `js/progress-storage.js`. Older saves are upgraded automatically. Use
 **Download** to keep a backup or to move to another device. The theme
-choice is saved once for all books under `recall-quiz:theme`.
+choice is saved once for all books under `recall-quiz:theme` and, when you are signed in, follows your account to other devices.
 
 ### Themes
 

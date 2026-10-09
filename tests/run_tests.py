@@ -114,7 +114,7 @@ def answer_question(page, question, answer_wrongly):
 
 
 def open_page(browser, questions=None, book=None, width=430, bank=None,
-              block=None):
+              block=None, view="ideas"):
     """Open the quiz, optionally with a made-up questions.json, a bank
     from banks/ (bank="how-to-read-a-book") or some files blocked."""
     page = browser.new_page(viewport={"width": width, "height": 900})
@@ -125,6 +125,10 @@ def open_page(browser, questions=None, book=None, width=430, bank=None,
     page.route("**/js/sync/sync-config.js", lambda route: route.fulfill(
         content_type="application/javascript",
         body='window.RecallQuizSyncConfig = {provider: "none"};'))
+    if view:
+        # Most tests click ideas straight under a chapter (ideas view).
+        page.add_init_script(
+            f"localStorage.setItem('recall-quiz-home-view', '{view}')")
     if block:
         page.route(block, lambda route: route.abort())
     served = dict(book or BOOK)
@@ -478,6 +482,124 @@ def test_themes(browser):
     page.close()
 
 
+def test_home_views(browser):
+    """The chapter list can show the book's structure or its ideas."""
+    print("Chapter structure and ideas views")
+    page = open_page(browser, view=None)
+    check("the view switch is shown",
+          page.is_visible(".view-switch"))
+    check("the structure view is the default",
+          page.get_attribute(".view-switch [data-view='structure']",
+                             "aria-pressed") == "true")
+    check("chapters hold topics (sub-headings)",
+          page.locator(".section-row").count() > 0)
+    check("no idea list sits directly under a chapter",
+          page.locator(".unit-progress > .concept-list").count() == 0)
+    page.locator(".section-row > summary").first.evaluate(
+        "e => e.parentElement.open = true")
+    check("a topic opens to its ideas",
+          page.locator(".section-row .concept-row").count() > 0)
+    page.click(".view-switch [data-view='ideas']")
+    check("the ideas view lists ideas under each chapter",
+          page.locator(".unit-progress > .concept-list").count() > 0
+          and page.locator(".section-row").count() == 0)
+    page.reload()
+    page.wait_for_selector(".view-switch")
+    check("the choice is remembered after a reload",
+          page.get_attribute(".view-switch [data-view='ideas']",
+                             "aria-pressed") == "true")
+    page.close()
+
+    plain = {"id": "plain", "book": "Plain book",
+             "questions": [dict(question, unit="Chapter 1")
+                           for question in BOOK["questions"][:3]]}
+    for question in plain["questions"]:
+        question.pop("concept", None)
+    page = open_page(browser, book=plain, view=None)
+    check("a book without ideas still shows the switch",
+          page.is_visible(".view-switch"))
+    check("its structure view lists topics",
+          page.locator(".unit-progress .topic-list").count() > 0)
+    page.click(".view-switch [data-view='ideas']")
+    note = page.inner_text("#where-you-stand .empty-note")
+    check("the ideas view explains there are no ideas",
+          "no teaching ideas" in note, note)
+    page.close()
+
+
+def open_synced_page(browser, account_theme=None, local_theme=None):
+    """Open the quiz signed in to the test account (example-in-browser),
+    with an optional theme already in the account or in this browser."""
+    page = browser.new_page(viewport={"width": 430, "height": 900})
+    page.errors = []
+    page.on("pageerror", lambda error: page.errors.append(str(error)))
+    page.route("**/fonts.googleapis.com/**", lambda route: route.abort())
+    page.route("**/js/sync/sync-config.js", lambda route: route.fulfill(
+        content_type="application/javascript",
+        body='window.RecallQuizSyncConfig = {provider: "example-in-browser",'
+             ' saveDelaySeconds: 1, "example-in-browser": {}};'))
+    lines = ["sessionStorage.setItem('recall-quiz-example-account', "
+             "'example-user');"]
+    if account_theme:
+        lines.append(
+            "sessionStorage.setItem('recall-quiz-example-store:"
+            "example-user/_settings', JSON.stringify({theme: "
+            + json.dumps(account_theme) + "}));")
+    if local_theme:
+        lines.append("localStorage.setItem('recall-quiz:theme', "
+                     "JSON.stringify(" + json.dumps(local_theme) + "));")
+    page.add_init_script("if (!sessionStorage.getItem('seeded')) {"
+                         + "".join(lines)
+                         + "sessionStorage.setItem('seeded', '1'); }")
+    page.goto(PAGE_URL)
+    page.wait_for_selector("#book-title:not(:text-is('Recall Quiz'))")
+    return page
+
+
+def account_theme(page):
+    """The theme saved in the test account, or None."""
+    return page.evaluate(
+        "() => { const text = sessionStorage.getItem("
+        "'recall-quiz-example-store:example-user/_settings');"
+        " return text ? JSON.parse(text).theme : null; }")
+
+
+def test_theme_follows_the_account(browser):
+    """The theme is saved with the account and restored on a new device."""
+    print("Theme saved to the account")
+    page = open_synced_page(
+        browser, account_theme={"t": "lego", "m": "dark", "a": 2000000000000})
+    page.wait_for_function(
+        "document.documentElement.dataset.theme === 'lego'", timeout=8000)
+    root = page.evaluate("() => document.documentElement.dataset.mode")
+    check("a theme saved in the account is applied on this device",
+          root == "dark", str(root))
+    page.close()
+
+    page = open_synced_page(browser)
+    page.click("#theme-button")
+    page.click(".theme-tile[data-theme-id='lego']")
+    page.wait_for_function(
+        "sessionStorage.getItem('recall-quiz-example-store:example-user/"
+        "_settings') !== null", timeout=8000)
+    saved = account_theme(page)
+    check("choosing a theme saves it to the account",
+          saved and saved["t"] == "lego", str(saved))
+    page.close()
+
+    page = open_synced_page(
+        browser,
+        account_theme={"t": "classic", "m": "light", "a": 1000},
+        local_theme={"t": "lego", "m": "dark", "a": 1900000000000})
+    page.wait_for_function(
+        "sessionStorage.getItem('recall-quiz-example-store:example-user/"
+        "_settings').includes('lego')", timeout=8000)
+    theme = page.evaluate("() => document.documentElement.dataset.theme")
+    check("a newer choice here beats an older one in the account",
+          theme == "lego" and not page.errors, "; ".join(page.errors))
+    page.close()
+
+
 def test_phone_width(browser):
     """Nothing scrolls sideways at phone width."""
     print("Phone width (375px)")
@@ -745,8 +867,8 @@ def test_validator_writer_rules():
     check("an unknown HTRAB tag is an error", "ERROR" in out
           and "not in htrab/tags.json" in out, out[-300:])
     check("the tag file lists the levels",
-          [level["id"] for level in tags["levels"]][:3]
-          == ["inspectional", "analytical", "syntopical"])
+          [level["id"] for level in tags["levels"]][:4]
+          == ["elementary", "inspectional", "analytical", "syntopical"])
 
 
 def test_new_bank_fields_show(browser):
@@ -905,6 +1027,8 @@ def test_htrab_overlay(browser):
 
     page.click(".htrab-panel button[data-value='on']")
     page.wait_for_selector("#htrab-level")
+    page.wait_for_function(
+        "document.querySelectorAll('#htrab-level option').length > 1")
     levels = page.eval_on_selector_all(
         "#htrab-level option", "o => o.map(x => x.value)")
     check("the level list holds only levels in the bank",
@@ -1034,6 +1158,8 @@ def main():
             test_sanskrit_answers(browser)
             test_formulas(browser)
             test_themes(browser)
+            test_home_views(browser)
+            test_theme_follows_the_account(browser)
             test_phone_width(browser)
             browser.close()
     finally:

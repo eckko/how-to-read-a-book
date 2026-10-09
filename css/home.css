@@ -521,3 +521,59 @@ select {
 .file-picker-button {
   cursor: pointer;
 }
+
+/* ------------------------------------------------------------------ */
+/* The structure / ideas switch and the topics of a chapter            */
+/* ------------------------------------------------------------------ */
+
+.view-switch {
+  max-width: 340px;
+  margin: 0 0 12px;
+}
+
+.section-list {
+  display: grid;
+  gap: 2px;
+  padding: 0 0 10px;
+}
+
+.section-row > summary {
+  display: grid;
+  grid-template-columns: 1fr 90px 40px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 0.92rem;
+  list-style: none;
+  cursor: pointer;
+}
+
+.section-row > summary::-webkit-details-marker {
+  display: none;
+}
+
+.section-name::before {
+  content: "\25B8";
+  margin-right: 6px;
+  color: var(--color-text-muted);
+}
+
+.section-row[open] .section-name::before {
+  content: "\25BE";
+}
+
+.section-row .progress-bar i {
+  background: linear-gradient(
+    90deg,
+    var(--color-accent),
+    var(--color-pop-3)
+  );
+}
+
+.section-name.is-weak {
+  color: var(--color-wrong);
+}
+
+.section-row .concept-list {
+  margin: 4px 0 10px 14px;
+}

@@ -24,5 +24,9 @@ follows them across devices. Off by default.
   `example-in-browser` for testing). To use another database, add an
   adapter and set `provider` to its name.
 
+- The theme choice follows the reader too: cloud-sync.js listens to
+  `recallquiz:theme-changed` and keeps the newest choice in a `_settings`
+  document of the account (see `ai-context/data-formats.md`).
+
 Sync never changes how the quiz works when it is off or the reader is
 signed out.

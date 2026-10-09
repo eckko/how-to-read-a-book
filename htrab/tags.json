@@ -2,6 +2,44 @@
  "schema": 1,
  "levels": [
   {
+   "id": "elementary",
+   "label": "Elementary",
+   "topics": [
+    {
+     "id": "the-first-level-of-reading-elementary-reading",
+     "label": "The First Level of Reading: Elementary Reading",
+     "chapter": 3,
+     "stage": null,
+     "subtopics": [
+      {
+       "id": "stages-of-learning-to-read",
+       "label": "Stages of Learning to Read",
+       "items": 8,
+       "testable": true
+      },
+      {
+       "id": "stages-and-levels",
+       "label": "Stages and Levels",
+       "items": 5,
+       "testable": true
+      },
+      {
+       "id": "higher-levels-of-reading-and-higher-education",
+       "label": "Higher Levels of Reading and Higher Education",
+       "items": 4,
+       "testable": false
+      },
+      {
+       "id": "reading-and-the-democratic-ideal-of-education",
+       "label": "Reading and the Democratic Ideal of Education",
+       "items": 1,
+       "testable": false
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "inspectional",
    "label": "Inspectional",
    "topics": [
@@ -674,44 +712,6 @@
        "label": "Summary of Syntopical Reading",
        "items": 10,
        "testable": true
-      }
-     ]
-    }
-   ]
-  },
-  {
-   "id": "elementary",
-   "label": "Elementary",
-   "topics": [
-    {
-     "id": "the-first-level-of-reading-elementary-reading",
-     "label": "The First Level of Reading: Elementary Reading",
-     "chapter": 3,
-     "stage": null,
-     "subtopics": [
-      {
-       "id": "stages-of-learning-to-read",
-       "label": "Stages of Learning to Read",
-       "items": 8,
-       "testable": true
-      },
-      {
-       "id": "stages-and-levels",
-       "label": "Stages and Levels",
-       "items": 5,
-       "testable": true
-      },
-      {
-       "id": "higher-levels-of-reading-and-higher-education",
-       "label": "Higher Levels of Reading and Higher Education",
-       "items": 4,
-       "testable": false
-      },
-      {
-       "id": "reading-and-the-democratic-ideal-of-education",
-       "label": "Reading and the Democratic Ideal of Education",
-       "items": 1,
-       "testable": false
       }
      ]
     }

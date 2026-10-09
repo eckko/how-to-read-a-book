@@ -197,3 +197,11 @@ no "override" layers. Theme `extra.css` rules are scoped with
 - Optional sync lives in `js/sync/` and talks to the page only through
   the events `recallquiz:progress-saved`, `recallquiz:book-opened` and
   `recallquiz:session-finished`.
+
+## Home view (structure or ideas)
+
+`js/home-screen.js` draws the chapter list in `showWhereYouStand`. A switch
+(`recall-quiz-home-view`, or `?view=`) picks "Chapter structure" (default:
+chapters, then topics, each opening to its ideas) or "Ideas" (chapters
+holding a flat list of ideas). A book without ideas shows its topic list in
+the structure view and a short note in the ideas view.

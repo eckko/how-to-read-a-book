@@ -165,7 +165,22 @@
   function usedNodes() {
     return taggedQuestions().map(function toNodes(question) {
       return nodesOf(tagOf(question));
-    }).filter(Boolean);
+    }).filter(Boolean).sort(function byBookOrder(first, second) {
+      return treePosition(first) - treePosition(second);
+    });
+  }
+
+  /**
+   * Where a tag sits in tags.json, so choices appear in reading order
+   * rather than in the order the questions happen to be written.
+   * @param {{level: object, topic: object, sub: object}} nodes
+   * @returns {number} a number that grows with the tag's position
+   */
+  function treePosition(nodes) {
+    const levelAt = state.tree.levels.indexOf(nodes.level);
+    const topicAt = nodes.level.topics.indexOf(nodes.topic);
+    const subAt = nodes.topic.subtopics.indexOf(nodes.sub);
+    return levelAt * 1000000 + topicAt * 1000 + subAt;
   }
 
   /**

@@ -25,6 +25,10 @@
   const PROVIDER_FOLDER = "js/sync/providers/";
   const OWNER_KEY_PREFIX = "recall-quiz-sync-owner:";
   const DEFAULT_SAVE_DELAY_SECONDS = 20;
+  /** The account document that holds settings shared by every book
+      (stored like a book called "_settings", so the rules need no change) */
+  const SETTINGS_DOCUMENT_ID = "_settings";
+  const THEME_SAVE_DELAY_SECONDS = 2;
   const MS_PER_SECOND = 1000;
   /** Give up waiting for the database after this long. A database that
       queues writes offline (Firestore) keeps retrying by itself. */
@@ -46,6 +50,7 @@
     status: "off",       // off | file | connecting | signed-out |
                          // syncing | saved | error
     saveTimer: null,
+    themeTimer: null,
   };
 
   // ------------------------------------------------------------ setup
@@ -138,6 +143,8 @@
     document.addEventListener("recallquiz:progress-saved",
       handleProgressSaved);
     document.addEventListener("recallquiz:session-finished", saveNow);
+    document.addEventListener("recallquiz:theme-changed",
+      handleThemeChanged);
     document.addEventListener("visibilitychange",
       function saveWhenHidden() {
         if (document.visibilityState === "hidden") {
@@ -157,6 +164,7 @@
     sync.bookId = event.detail.bookId;
     if (sync.user) {
       saveNow();
+      syncSettings(sync.user);
     }
   }
 
@@ -170,11 +178,62 @@
       showStatus("signed-out");
       return;
     }
+    syncSettings(user);
     if (sync.bookId) {
       saveNow();
     } else {
       showStatus("saved");
     }
+  }
+
+  /** The reader picked a theme: save it to the account soon. */
+  function handleThemeChanged() {
+    clearTimeout(sync.themeTimer);
+    if (!sync.user) {
+      return;
+    }
+    const user = sync.user;
+    sync.themeTimer = setTimeout(function saveTheme() {
+      syncSettings(user);
+    }, THEME_SAVE_DELAY_SECONDS * MS_PER_SECOND);
+  }
+
+  /**
+   * Keep the theme the same on every device: the newest choice, in this
+   * browser or in the account, wins. A newer account choice is applied
+   * here; a newer browser choice is written to the account. Failures
+   * are logged and ignored (the theme is not worth an error message).
+   * @param {{id: string}} user
+   * @returns {Promise}
+   */
+  function syncSettings(user) {
+    const theme = window.RecallQuizTheme;
+    if (!theme || !sync.provider) {
+      return Promise.resolve();
+    }
+    return withTimeout(
+      sync.provider.readProgress(user.id, SETTINGS_DOCUMENT_ID))
+      .then(function chooseNewest(account) {
+        const local = theme.read();
+        const saved = account && account.theme;
+        if (sync.user !== user) {
+          return undefined;
+        }
+        if (saved && theme.useRemote(
+            { themeId: saved.t, mode: saved.m, at: saved.a })) {
+          return undefined;
+        }
+        const isLocalNewer = local.at > 0 && (!saved || local.at > saved.a);
+        if (!isLocalNewer) {
+          return undefined;
+        }
+        return withTimeout(sync.provider.writeProgress(
+          user.id, SETTINGS_DOCUMENT_ID,
+          { theme: { t: local.themeId, m: local.mode, a: local.at } }));
+      })
+      .catch(function ignoreSettingsProblem(problem) {
+        console.error("Theme sync failed:", problem);
+      });
   }
 
   /** Progress changed in the browser: save to the account soon. */

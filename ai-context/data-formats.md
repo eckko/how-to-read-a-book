@@ -114,8 +114,17 @@ this code knows.
 ## Theme choice
 
 Key: `recall-quiz:theme` (shared by every book on the same site), value
-`{"t": "<theme id>", "m": "light" | "dark" | "system"}`. The short keys
-are kept for compatibility with existing saves.
+`{"t": "<theme id>", "m": "light" | "dark" | "system", "a": <ms>}`. The
+short keys are kept for compatibility with existing saves. `a` is when the
+reader last picked the theme (0 or missing if never); cloud sync keeps the
+newest choice. When signed in, the choice is also stored in the account as
+a document called `_settings` (same place and rules as a book's progress):
+`{"theme": {"t": ..., "m": ..., "a": ...}}`.
+
+## Home view choice
+
+Key: `recall-quiz-home-view`, value `"structure"` (default) or `"ideas"`.
+`?view=ideas` in the address overrides it. Kept in this browser only.
 
 ## theme.json
 
