@@ -1,5 +1,6 @@
 {
   "name": "Lego",
+  "group": "Playful",
   "fonts": {
     "body": "\"Fredoka\",\"Trebuchet MS\",system-ui,sans-serif",
     "headings": "\"Fredoka\",\"Trebuchet MS\",system-ui,sans-serif"

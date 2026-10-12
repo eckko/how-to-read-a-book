@@ -2,9 +2,11 @@
  * theme-picker.js
  * Light, dark or system mode, and the theme picker.
  *
- * This file is loaded in <head>, so the saved theme is applied before
+ * This file is loaded in <head>, so the last theme shown is applied before
  * the page is drawn (no flash of the wrong colours). The tiles are built
- * once the page has loaded.
+ * once the page has loaded. Once a book is open (useBook) the theme is the
+ * one saved for THAT book, so every book can look different; a book with
+ * nothing saved starts from the default theme.
  *
  * How themes are switched: the <html> element gets three attributes,
  *   data-theme="lego"      which theme
@@ -18,8 +20,13 @@
 (function setUpThemePicker() {
   "use strict";
 
-  /** One saved choice for every book on this site */
+  /** The theme shown last, used to paint the page before a book is open */
   const STORAGE_KEY = "recall-quiz:theme";
+  /** One saved choice per book: this prefix plus the book id */
+  const BOOK_KEY_PREFIX = "recall-quiz:theme:";
+  /** Version of the saved choice {v, t, m, a}; bump it with a step in
+      readStoredChoice when the format changes */
+  const STORED_VERSION = 1;
   const DEFAULT_THEME = "classic";
   const DEFAULT_MODE = "system";
 
@@ -29,24 +36,57 @@
     ? window.matchMedia("(prefers-color-scheme: dark)")
     : null;
 
-  /** The reader's choice: theme id and light / dark / system */
-  const choice = readSavedChoice();
+  const MODES = ["light", "dark", "system"];
 
-  /** @returns {{themeId: string, mode: string}} */
-  function readSavedChoice() {
-    const saved = { themeId: DEFAULT_THEME, mode: DEFAULT_MODE };
-    try {
-      // Stored as {t: themeId, m: mode} to stay compatible with old saves.
-      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+  /** The open book's id ("" before a book is open) */
+  let bookId = "";
+  /** True when this book's saved choice comes from a newer version of
+      this code; it is then never overwritten */
+  let isSavedChoiceNewer = false;
+
+  /** The reader's choice: theme id and light / dark / system, and when
+      they last picked it (0 if never; cloud sync keeps the newest) */
+  const choice = readSavedChoice(STORAGE_KEY);
+  /**
+   * Read a saved choice, or the defaults.
+   * @param {string} key  the localStorage key
+   * @returns {{themeId: string, mode: string, at: number}}
+   */
+  function readSavedChoice(key) {
+    const saved = { themeId: DEFAULT_THEME, mode: DEFAULT_MODE, at: 0 };
+    const stored = readStoredChoice(key);
+    if (stored) {
       saved.themeId = stored.t || saved.themeId;
-      saved.mode = stored.m || saved.mode;
-    } catch (storageError) {
-      // Storage blocked: use the defaults.
+      saved.mode = MODES.includes(stored.m) ? stored.m : saved.mode;
+      saved.at = Number(stored.a) || 0;
     }
     if (!themes.some(isTheme(saved.themeId))) {
       saved.themeId = DEFAULT_THEME;
     }
     return saved;
+  }
+
+  /**
+   * The parsed saved choice {v, t, m, a}, upgraded to this version
+   * (version 1 is the format without a "v"). Nothing yet needs
+   * converting; add a step here when the format changes.
+   * @param {string} key
+   * @returns {object|null} null when nothing readable is saved
+   */
+  function readStoredChoice(key) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(key));
+      if (!stored || typeof stored !== "object") {
+        return null;
+      }
+      if (Number(stored.v) > STORED_VERSION) {
+        isSavedChoiceNewer = true;
+        return null;
+      }
+      return stored;
+    } catch (storageError) {
+      return null;       // Storage blocked or damaged: use the defaults.
+    }
   }
 
   /** @param {string} themeId  @returns {function(Array): boolean} */
@@ -56,14 +96,33 @@
     };
   }
 
-  /** Remember the choice in this browser (for every book on the site). */
+  /** Remember the choice in this browser: for the open book, and as the
+      theme to paint first next time. */
   function saveChoice() {
+    const text = JSON.stringify({ v: STORED_VERSION, t: choice.themeId,
+      m: choice.mode, a: choice.at });
     try {
-      const stored = { t: choice.themeId, m: choice.mode };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+      localStorage.setItem(STORAGE_KEY, text);
+      if (bookId && !isSavedChoiceNewer) {
+        localStorage.setItem(BOOK_KEY_PREFIX + bookId, text);
+      }
     } catch (storageError) {
       // Storage blocked: the choice lasts until the tab is closed.
     }
+  }
+
+  /**
+   * A book was opened: use the theme saved for it, or the defaults.
+   * @param {string} newBookId
+   */
+  function useBook(newBookId) {
+    bookId = newBookId;
+    isSavedChoiceNewer = false;
+    const saved = readSavedChoice(BOOK_KEY_PREFIX + bookId);
+    choice.themeId = saved.themeId;
+    choice.mode = saved.mode;
+    choice.at = saved.at;
+    applyChoice();
   }
 
   /** @returns {boolean} true if the page should be dark right now */
@@ -83,8 +142,43 @@
     markPressedButtons();
   }
 
+  /**
+   * The reader picked a theme or mode: stamp the time, apply it and tell
+   * cloud sync (it listens for recallquiz:theme-changed).
+   */
+  function applyChoiceFromReader() {
+    choice.at = Date.now();
+    applyChoice();
+    document.dispatchEvent(new CustomEvent("recallquiz:theme-changed"));
+  }
+
+  /**
+   * Use a choice saved in the reader's account if it is newer than the
+   * one in this browser.
+   * @param {{themeId: string, mode: string, at: number}} remote
+   * @returns {boolean} true if it was used
+   */
+  function useRemoteChoice(remote) {
+    const isValid = remote && themes.some(isTheme(remote.themeId)) &&
+      MODES.includes(remote.mode);
+    if (!isValid || !(remote.at > choice.at)) {
+      return false;
+    }
+    choice.themeId = remote.themeId;
+    choice.mode = remote.mode;
+    choice.at = remote.at;
+    applyChoice();
+    return true;
+  }
+
   /** Show which mode button and which tile are chosen. */
   function markPressedButtons() {
+    const current = document.getElementById("appearance-current");
+    if (current) {
+      const theme = themes.find(isTheme(choice.themeId));
+      current.textContent = (theme ? theme[1] : "") + " · " +
+        choice.mode.charAt(0).toUpperCase() + choice.mode.slice(1);
+    }
     document.querySelectorAll("#theme-mode-choice button").forEach(
       function markModeButton(button) {
         const mode = button.getAttribute("data-theme-mode");
@@ -94,6 +188,11 @@
       function markTile(tile) {
         const themeId = tile.getAttribute("data-theme-id");
         tile.setAttribute("aria-pressed", String(themeId === choice.themeId));
+      });
+    document.querySelectorAll("#theme-tiles .theme-group").forEach(
+      function markGroup(group) {
+        group.classList.toggle("has-current", Boolean(group.querySelector(
+          '.theme-tile[aria-pressed="true"]')));
       });
   }
 
@@ -108,6 +207,39 @@
     document.head.appendChild(link);
   }
 
+  /** @returns {string[]} the theme groups, in picker order */
+  function groupNames() {
+    const names = [];
+    themes.forEach(function add(theme) {
+      const name = theme[2] || "Themes";
+      if (names.indexOf(name) < 0) {
+        names.push(name);
+      }
+    });
+    return names;
+  }
+
+  /**
+   * One folded group of tiles: a heading with the group's name and how
+   * many themes it holds, and the tiles inside.
+   * @param {string} name  the group
+   * @returns {{group: HTMLElement, tiles: HTMLElement}}
+   */
+  function createThemeGroup(name) {
+    const group = createPart("details", "theme-group");
+    group.setAttribute("data-group", name);
+    const heading = createPart("summary", "theme-group-name");
+    heading.appendChild(createPart("span", null, name));
+    const count = themes.filter(function inGroup(theme) {
+      return (theme[2] || "Themes") === name;
+    }).length;
+    heading.appendChild(createPart("small", null, String(count)));
+    group.appendChild(heading);
+    const tiles = createPart("div", "theme-group-tiles");
+    group.appendChild(tiles);
+    return { group, tiles };
+  }
+
   /**
    * A preview tile: mascot, three colour dots, a button and the name.
    * The colours come from css/themes.css, by data-theme-id.
@@ -115,11 +247,12 @@
    * @param {string} themeName
    * @returns {HTMLButtonElement}
    */
-  function createThemeTile(themeId, themeName) {
+  function createThemeTile(themeId, themeName, groupName) {
     const tile = document.createElement("button");
     tile.type = "button";
     tile.className = "theme-tile";
     tile.setAttribute("data-theme-id", themeId);
+    tile.setAttribute("data-group", groupName);
     tile.appendChild(createPart("div", "tile-mascot"));
     const swatches = createPart("div", "tile-swatches");
     swatches.appendChild(createPart("i"));
@@ -130,7 +263,7 @@
     tile.appendChild(createPart("div", "tile-name", themeName));
     tile.addEventListener("click", function chooseTheme() {
       choice.themeId = themeId;
-      applyChoice();
+      applyChoiceFromReader();
     });
     return tile;
   }
@@ -170,25 +303,26 @@
   /** Build the tiles and connect the buttons. Runs once the page loads. */
   function setUpPicker() {
     const tileArea = document.getElementById("theme-tiles");
-    const panel = document.getElementById("theme-panel");
-    const themeButton = document.getElementById("theme-button");
-    if (!tileArea || !themeButton) {
+    if (!tileArea) {
       return;
     }
-    themes.forEach(function addTile(theme) {
-      tileArea.appendChild(createThemeTile(theme[0], theme[1]));
+    groupNames().forEach(function addGroup(name) {
+      const parts = createThemeGroup(name);
+      themes.forEach(function addTile(theme) {
+        if ((theme[2] || "Themes") === name) {
+          parts.tiles.appendChild(
+            createThemeTile(theme[0], theme[1], name));
+        }
+      });
+      tileArea.appendChild(parts.group);
     });
     document.querySelectorAll("#theme-mode-choice button").forEach(
       function connectModeButton(button) {
         button.addEventListener("click", function chooseMode() {
           choice.mode = button.getAttribute("data-theme-mode");
-          applyChoice();
+          applyChoiceFromReader();
         });
       });
-    themeButton.addEventListener("click", function togglePanel() {
-      const isOpen = !panel.classList.toggle("hidden");
-      themeButton.setAttribute("aria-expanded", String(isOpen));
-    });
     if (darkModeQuery) {
       listenForSystemModeChanges(function followSystem() {
         if (choice.mode === "system") {
@@ -198,6 +332,15 @@
     }
     applyChoice();
   }
+
+  /** Lets js/sync/cloud-sync.js save and restore the choice. */
+  window.RecallQuizTheme = {
+    read: function readChoice() {
+      return { themeId: choice.themeId, mode: choice.mode, at: choice.at };
+    },
+    useRemote: useRemoteChoice,
+    useBook,
+  };
 
   applyChoice();          // before the page is drawn
   loadThemeFonts();

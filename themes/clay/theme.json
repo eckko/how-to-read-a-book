@@ -1,5 +1,6 @@
 {
   "name": "Clay",
+  "group": "Playful",
   "fonts": {
     "body": "\"Fredoka\",\"Nunito\",system-ui,sans-serif",
     "headings": "\"Fredoka\",\"Nunito\",system-ui,sans-serif"

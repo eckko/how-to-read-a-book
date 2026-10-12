@@ -85,18 +85,6 @@ Key: `recall-quiz:<book id>`. Current format, version 2:
   (`dayKey` in `js/spaced-repetition.js`).
 - `recentResults` is newest first, at most 5.
 - `verdict` is `"excellent"`, `"pass"` or `"fail"`.
-- `resetAt` (optional) is when Reset was pressed. Cloud sync drops
-  anything older than the latest `resetAt` when merging, so a reset is
-  not undone by another device.
-
-### In the account (cloud sync)
-
-When sync is on, the same object is saved per reader per book. With
-Firebase: `users/{uid}/books/{encodeURIComponent(book id)}` with fields
-`progress` (the object as JSON text) and `updatedAt`. Which account the
-browser copy belongs to is kept in localStorage under
-`recall-quiz-sync-owner:<book id>`. Merge rules are in
-`js/sync/progress-merge.js`.
 
 ### Version 1 (older saves and backups)
 
@@ -126,8 +114,17 @@ this code knows.
 ## Theme choice
 
 Key: `recall-quiz:theme` (shared by every book on the same site), value
-`{"t": "<theme id>", "m": "light" | "dark" | "system"}`. The short keys
-are kept for compatibility with existing saves.
+`{"t": "<theme id>", "m": "light" | "dark" | "system", "a": <ms>}`. The
+short keys are kept for compatibility with existing saves. `a` is when the
+reader last picked the theme (0 or missing if never); cloud sync keeps the
+newest choice. When signed in, the choice is also stored in the account as
+a document called `_settings` (same place and rules as a book's progress):
+`{"theme": {"t": ..., "m": ..., "a": ...}}`.
+
+## Home view choice
+
+Key: `recall-quiz-home-view`, value `"structure"` (default) or `"ideas"`.
+`?view=ideas` in the address overrides it. Kept in this browser only.
 
 ## theme.json
 
@@ -178,3 +175,66 @@ and `theme_variables` in `tools/build_themes.py`.
   forgiven in answers of 6+ letters, as for English.
 - The theme font stacks end with system Devanagari fonts (set in
   `tools/build_themes.py`).
+
+
+## Concepts and teaching fields (optional)
+
+A bank may add a top-level `concepts` list and per-question `concept`,
+`role`, `rung`, `optionExplain`, `explain`, `rule`, `teaches`, `hint`.
+The full schema and rules are in `learning-design.md`. Saved progress is
+unchanged (format v2). M3 adds optional bank fields: top-level `summary`
+and `unitSummaries`; per concept `question`, `core`, `htrab` and
+`card.limits`; per question `htrab`. See `learning-design.md`. Saved
+progress is still unchanged (format v2): a pretest only adds `pretested` and
+`pretestResult` to a question record; concept status is derived.
+
+## Settings (home layout and practice defaults)
+
+Everything the reader sets is kept **per book**, in `localStorage` key
+`recall-quiz-book:<bookId>` (`js/book-settings.js`):
+`{version: 2, layout, flags, ideaFlags}`. `layout` is owned by `js/home-layout.js`:
+folding keys (`progress`, `recent`, `setup`, `stand` = "open"|"closed";
+`chapters` "next"|"open"|"closed"; `inner`), practice defaults (`timer`
+0/15/30/60, `confidence`, `htrab`, `count` (0 = all), `minutes`, `scope`
+`{unit, section?, concept?}`, `filter` all|due|gaps|important, `lengthMode`),
+`customStart` (auto|open|closed), `show` (`setup`, `keepGoing`, `timer`,
+`confidence`, `htrab`, `quick`, `custom`, `filter`, `filterDue`,
+`filterGaps`, `filterImportant`, `filterAll`, `length`, `flagBar`,
+`ideaFlagBar`; hidden controls still apply their defaults. `keepGoing`
+(the button, its "Up next" line and the hint), `filterDue` and `filterGaps`
+are hidden until shown; a key that is missing takes that default. When all
+four `filter*` options are hidden the whole row is hidden and the default
+`filter` is used) and `at` (last change). Theme is per book too:
+`recall-quiz:theme:<bookId>` = `{v: 1, t, m, a}`; the global
+`recall-quiz:theme` is only the last theme shown, to avoid a flash.
+Flags: `flags: {questionId: {f: ["bad"|"revisit"|"useless"|"important"],
+a: time}}`. Bad and Useless hide the question (`quiz.book.setHiddenIds`).
+`ideaFlags` has the same shape, keyed by idea (concept) id, and is kept
+apart from question flags: Bad and Useless hide only the idea from the idea
+lists (`quiz.learning.concepts()`), never its questions; Important ideas
+are offered first in Keep me going. Version 1 records had no `ideaFlags`;
+`MIGRATIONS[1]` adds it.
+Versioning: bump `CURRENT_VERSION` and add a step to `MIGRATIONS[N]` (N to
+N+1); newer-version data is read-only and never overwritten. The tab's
+practice overrides (`sessionStorage`
+`recall-quiz-practice-override:<bookId>`, `{v: 1, ...}`) are versioned the
+same way. Account: one document per book, `_settings:<bookId>`:
+`{v: 2, layout, flags, ideaFlags, theme: {t, m, a}}` (newest `at` wins for
+layout and theme; flags and idea flags merge per item by time). Sign-in is global.
+Code: `js/home-layout.js` (Settings screen,
+folding, Expand all), `js/session-settings.js` (`readChoices`/`useChoices`),
+`htrab/htrab.js` (`quiz.htrab.isOn`/`useRemote`). The HTRAB On/Off switch is
+shown on the Settings screen; its level/stage picker stays on the home screen.
+The sign-in bar shows on the home screen only when the reader must act
+(signed out, error); the Account section of Settings always shows. Every
+Settings section is a folded `<details>` that starts closed on each visit
+(nothing is remembered); its title carries a short summary (`<id>-current`),
+and Account's is the signed-in name.
+
+Practice values in this record are *defaults*. A change made on the home
+screen is an override kept in `sessionStorage` key
+`recall-quiz-practice-override` (this tab only, never synced); the home
+screen shows defaults plus overrides. Setting a default on the Settings
+screen clears that choice's override. `theme.json` may carry `"group"`; the
+picker shows one group at a time (`window.QUIZ_THEMES` entries are
+`[id, name, group]`).

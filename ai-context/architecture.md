@@ -24,8 +24,6 @@ index.html  (all screens live here; JS shows and hides them)
      js/home-screen.js
      js/session-settings.js
      js/progress-file.js
-     js/sync/sync-config.js, progress-merge.js, cloud-sync.js  (optional)
-       cloud-sync loads js/sync/providers/<name>.js by itself
      js/main.js                              (starts the app; keep last)
 ```
 
@@ -50,8 +48,6 @@ adds one namespace to it (`js/theme-picker.js` is separate: it runs in
 | `quiz.session` | session.js | `state` (the running session), `startSession`, `goToNextQuestion`, `returnHome`; global keydown routing |
 | `quiz.resultsScreen` | results-screen.js | `showResults` |
 | `quiz.homeScreen` | home-screen.js | `showBookDetails`, `refresh` |
-| `quiz.progressMerge` | sync/progress-merge.js | `mergeProgress`, `sameProgress` (no database code) |
-| `quiz.cloudSync` | sync/cloud-sync.js | `registerProvider`, `saveNow`, `signIn`, `signOut`, `state`; the sign-in bar |
 | `quiz.settings` | session-settings.js | `current` (the panel's choices), `chooseQuestionsForSession`, `sessionMinutes`, `scopeName`, `updateReadySummary` |
 
 Load order matters in four ways, so keep the order in `index.html`:
@@ -67,19 +63,6 @@ Load order matters in four ways, so keep the order in `index.html`:
 - `main.js` starts the app, so it is last.
 
 Apart from that, modules call each other only inside functions.
-
-## Optional cloud sync
-
-`js/sync/` is an add-on. The core never calls it; it only sends three
-events on `document`: `recallquiz:book-opened` (main.js, detail.bookId),
-`recallquiz:progress-saved` (every `saveProgress`) and
-`recallquiz:session-finished` (results-screen.js). `cloud-sync.js` listens
-to them, merges with the account copy and saves through a database adapter
-in `js/sync/providers/`. Only adapters contain database code; the adapter
-interface and how to switch databases are in `js/sync/README.md`. Tests
-switch sync off by default (`open_page` serves a `provider: "none"`
-config) and test it with `providers/example-in-browser.js` and a fake
-Firebase SDK, so they never reach a real database.
 
 ## State
 
@@ -169,8 +152,8 @@ light or dark) on `<html>`. Defaults for every variable are in
 ## CSS layout
 
 Load order (later wins on equal specificity): `base.css`, `home.css`,
-`question.css`, `question-types.css`, `results.css`, `cloud-sync.css`,
-`themes.css`, `phone.css`. Each rule is written once with its final value; there are
+`question.css`, `question-types.css`, `results.css`, `themes.css`,
+`phone.css`. Each rule is written once with its final value; there are
 no "override" layers. Theme `extra.css` rules are scoped with
 `[data-theme="<id>"]`, so they win by specificity.
 
@@ -184,6 +167,41 @@ no "override" layers. Theme `extra.css` rules are scoped with
 | fill-in-the-blank matching | `js/question-types/fill-in-the-blank.js` |
 | a new setting on the setup panel | `index.html` + `js/session-settings.js` (`current`, a choice group), then read it in `resetState` in `js/session.js` |
 | phone layout | `css/phone.css` only |
-| cloud sync on/off, database settings | `js/sync/sync-config.js` |
-| a different database | a new `js/sync/providers/<name>.js` (see `js/sync/README.md`) |
 | a theme's look | `themes/<id>/`, then rebuild |
+
+
+## Learning layer (Learn mode)
+
+- `js/learning.js` (loaded after `spaced-repetition.js`): concept status
+  (new, learning, understood, solid, locked) derived from question
+  records, and `createLearnPlan` which builds the step list (pretest,
+  lesson card, ladder, interleaved reviews).
+- `js/question-types/lesson.js`: the concept card, a step of kind
+  `lesson`. Not scored and not timed.
+- `js/session.js` takes a plan (`startSession(plan)`, `startLearning`,
+  `startQuestions`). `js/session-settings.js` offers Keep me going (`createKeepGoingPlan` in learning.js) and custom practice. There are no modes; `strictOrder` in the bank restores locking.
+- Pretest runs (`isPretestRun`) go through `quiz.memory.recordPretest`
+  and are never scored; the question comes back later as a normal one.
+- M3 additions in `learning.js`: `createQuickPlan` (core ideas only),
+  `addEasyEnding` (a session ends on an easy review), `weakPartOf`
+  (where an idea breaks, from the saved records), `isCore`. The results
+  screen leads with "what went right" and the average of five sessions.
+- `js/main.js` loads `questions.json`, or a file in `banks/` named by
+  `?bank=banks/name.json`.
+- Events sent for add-ons: `recallquiz:book-opened`,
+  `recallquiz:question-shown` (question, cardElement),
+  `recallquiz:feedback-shown` (question, result, feedback),
+  `recallquiz:progress-saved`, `recallquiz:session-finished`. The HTRAB
+  overlay in `htrab/` listens to these and nothing else in the app calls
+  it.
+- Optional sync lives in `js/sync/` and talks to the page only through
+  the events `recallquiz:progress-saved`, `recallquiz:book-opened` and
+  `recallquiz:session-finished`.
+
+## Home view (structure or ideas)
+
+`js/home-screen.js` draws the chapter list in `showWhereYouStand`. A switch
+(`recall-quiz-home-view`, or `?view=`) picks "Chapter structure" (default:
+chapters, then topics, each opening to its ideas) or "Ideas" (chapters
+holding a flat list of ideas). A book without ideas shows its topic list in
+the structure view and a short note in the ideas view.

@@ -1,7 +1,7 @@
 /*
  * main.js
  * Starts the quiz: reads questions.json, opens the reader's saved
- * progress for that book, and shows the home screen.
+ * progress and settings for that book, and shows the home screen.
  *
  * Browsers will not read questions.json when the page is opened straight
  * from a folder (file://). In that case a panel asks the reader to pick
@@ -21,6 +21,10 @@
     quiz.math.enableIfNeeded(bookData);
     quiz.book.setBookData(bookData);
     quiz.progress.openForBook(quiz.book.bookId());
+    quiz.bookSettings.openForBook(quiz.book.bookId());
+    if (window.RecallQuizTheme) {
+      window.RecallQuizTheme.useBook(quiz.book.bookId());
+    }
     quiz.homeScreen.showBookDetails();
     findElement("load-error").classList.add("hidden");
     findElement("home-screen").classList.remove("hidden");
@@ -38,9 +42,21 @@
     findElement("load-error").classList.remove("hidden");
   }
 
-  /** Fetch questions.json from next to this page. */
+  /**
+   * The bank to load: questions.json, or a file in banks/ named in the
+   * address (index.html?bank=banks/how-to-read-a-book.json), which lets
+   * one site hold several sample banks.
+   * @returns {string}
+   */
+  function questionsFileName() {
+    const wanted = new URLSearchParams(window.location.search).get("bank");
+    return /^banks\/[\w-]+\.json$/.test(wanted || "") ?
+      wanted : QUESTIONS_FILE;
+  }
+
+  /** Fetch the question bank from next to this page. */
   function loadQuestionsFile() {
-    fetch(QUESTIONS_FILE, { cache: "no-cache" })
+    fetch(questionsFileName(), { cache: "no-cache" })
       .then(function readJson(response) {
         if (!response.ok) {
           throw new Error("HTTP " + response.status);

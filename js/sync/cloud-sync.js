@@ -9,7 +9,9 @@
  * (start, signIn, signOut, readProgress, writeProgress).
  *
  * The rest of the quiz does not know this file exists. It listens to
- * three events the quiz sends on the document:
+ * these events the quiz sends on the document (settings and flag changes
+ * also arrive as recallquiz:layout-changed, recallquiz:theme-changed and
+ * recallquiz:flags-changed):
  *   recallquiz:book-opened       a book's questions are ready
  *   recallquiz:progress-saved    progress changed in this browser
  *   recallquiz:session-finished  the results screen was shown
@@ -25,6 +27,12 @@
   const PROVIDER_FOLDER = "js/sync/providers/";
   const OWNER_KEY_PREFIX = "recall-quiz-sync-owner:";
   const DEFAULT_SAVE_DELAY_SECONDS = 20;
+  /** The account document that holds one book's settings (theme, layout,
+      practice defaults, flags): this prefix plus the book id. It is
+      stored like a book of its own, so the rules need no change. Sign-in
+      is the only thing shared by every book. */
+  const SETTINGS_DOCUMENT_PREFIX = "_settings:";
+  const THEME_SAVE_DELAY_SECONDS = 2;
   const MS_PER_SECOND = 1000;
   /** Give up waiting for the database after this long. A database that
       queues writes offline (Firestore) keeps retrying by itself. */
@@ -46,6 +54,7 @@
     status: "off",       // off | file | connecting | signed-out |
                          // syncing | saved | error
     saveTimer: null,
+    themeTimer: null,
   };
 
   // ------------------------------------------------------------ setup
@@ -138,6 +147,14 @@
     document.addEventListener("recallquiz:progress-saved",
       handleProgressSaved);
     document.addEventListener("recallquiz:session-finished", saveNow);
+    document.addEventListener("recallquiz:theme-changed",
+      handleThemeChanged);
+    document.addEventListener("recallquiz:layout-changed",
+      handleThemeChanged);
+    document.addEventListener("recallquiz:flags-changed",
+      handleThemeChanged);
+    document.addEventListener("recallquiz:idea-flags-changed",
+      handleThemeChanged);
     document.addEventListener("visibilitychange",
       function saveWhenHidden() {
         if (document.visibilityState === "hidden") {
@@ -157,6 +174,7 @@
     sync.bookId = event.detail.bookId;
     if (sync.user) {
       saveNow();
+      syncSettings(sync.user);
     }
   }
 
@@ -170,11 +188,93 @@
       showStatus("signed-out");
       return;
     }
+    syncSettings(user);
     if (sync.bookId) {
       saveNow();
     } else {
       showStatus("saved");
     }
+  }
+
+  /** The reader changed a setting, theme or flag: save it to the account
+      soon. */
+  function handleThemeChanged() {
+    clearTimeout(sync.themeTimer);
+    if (!sync.user) {
+      return;
+    }
+    const user = sync.user;
+    sync.themeTimer = setTimeout(function saveTheme() {
+      syncSettings(user);
+    }, THEME_SAVE_DELAY_SECONDS * MS_PER_SECOND);
+  }
+
+  /**
+   * Keep this book's settings the same on every device: the theme and
+   * layout that changed last win, and each question keeps its newest
+   * flags. A newer account copy is applied here; anything newer in this
+   * browser is written to the account. Data saved by a newer version of
+   * the quiz is left alone. Failures are logged and ignored (settings are
+   * not worth an error message).
+   * @param {{id: string}} user
+   * @returns {Promise}
+   */
+  function syncSettings(user) {
+    const theme = window.RecallQuizTheme;
+    const settings = quiz.bookSettings;
+    const bookId = sync.bookId;
+    if (!theme || !settings || !sync.provider || !bookId) {
+      return Promise.resolve();
+    }
+    const documentId = SETTINGS_DOCUMENT_PREFIX + bookId;
+    return withTimeout(sync.provider.readProgress(user.id, documentId))
+      .then(function chooseNewest(account) {
+        if (sync.user !== user || sync.bookId !== bookId) {
+          return undefined;
+        }
+        if (account && Number(account.v) > settings.CURRENT_VERSION) {
+          return undefined;
+        }
+        if (!mergeSettings(account, theme, settings)) {
+          return undefined;
+        }
+        return withTimeout(sync.provider.writeProgress(
+          user.id, documentId, settingsForAccount(theme, settings)));
+      })
+      .catch(function ignoreSettingsProblem(problem) {
+        console.error("Settings sync failed:", problem);
+      });
+  }
+
+  /**
+   * Use what is newer in the account copy here.
+   * @param {object|null} account  the account copy of this book's settings
+   * @param {object} theme  window.RecallQuizTheme
+   * @param {object} settings  quiz.bookSettings
+   * @returns {boolean} true if this browser has something newer, so the
+   *   account copy should be written
+   */
+  function mergeSettings(account, theme, settings) {
+    const savedTheme = account && account.theme;
+    const localTheme = theme.read();
+    const themeUsed = Boolean(savedTheme) && theme.useRemote(
+      { themeId: savedTheme.t, mode: savedTheme.m, at: savedTheme.a });
+    const isThemeNewer = !themeUsed && localTheme.at > 0 &&
+      (!savedTheme || localTheme.at > savedTheme.a);
+    settings.useRemote(account);
+    return isThemeNewer || settings.hasNewerThan(account);
+  }
+
+  /**
+   * @param {object} theme  window.RecallQuizTheme
+   * @param {object} settings  quiz.bookSettings
+   * @returns {object} this book's settings in their account shape
+   */
+  function settingsForAccount(theme, settings) {
+    const current = theme.read();
+    return Object.assign({}, settings.readForAccount(), {
+      theme: { t: current.themeId, m: current.mode, a: current.at },
+    });
   }
 
   /** Progress changed in the browser: save to the account soon. */
@@ -390,17 +490,50 @@
    */
   function showStatus(status) {
     sync.status = status;
-    const bar = quiz.helpers.findElement("cloud-sync-bar");
-    bar.textContent = "";
-    bar.classList.remove("hidden");
-    bar.dataset.status = status;
-    bar.appendChild(quiz.helpers.createElement("p", "cloud-sync-text",
+    const helpers = quiz.helpers;
+    // The Settings screen always shows the account; the home screen only
+    // shows a bar when the reader has something to do (sign in, retry).
+    const needsAttention = ["file", "signed-out", "error"]
+      .indexOf(status) >= 0;
+    fillAccount(helpers.findElement("cloud-sync-bar"), status,
+      needsAttention);
+    const section = helpers.findElement("account-section");
+    if (section) {
+      section.classList.remove("hidden");
+      fillAccount(helpers.findElement("account-body"), status, true);
+      showAccountSummary();
+    }
+  }
+
+  /**
+   * The folded Account title on the Settings screen: the signed-in name
+   * (cut short if it is long), or "Not signed in".
+   */
+  function showAccountSummary() {
+    const summary = document.getElementById("account-current");
+    if (summary) {
+      summary.textContent = sync.user ?
+        (sync.user.name || sync.user.email || "Signed in") : "Not signed in";
+    }
+  }
+
+  /**
+   * Fill one place (the home bar or the Settings account section).
+   * @param {HTMLElement} place
+   * @param {string} status
+   * @param {boolean} isShown  false hides the place
+   */
+  function fillAccount(place, status, isShown) {
+    place.textContent = "";
+    place.classList.toggle("hidden", !isShown);
+    place.dataset.status = status;
+    place.appendChild(quiz.helpers.createElement("p", "cloud-sync-text",
       statusText(status)));
     const buttons = quiz.helpers.createElement("div", "button-row");
     statusButtons(status).forEach(function addButton(button) {
       buttons.appendChild(button);
     });
-    bar.appendChild(buttons);
+    place.appendChild(buttons);
   }
 
   /** @returns {string} what to tell the reader in a state */

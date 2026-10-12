@@ -27,6 +27,9 @@
  *                              // device is not undone by another.
  *   }
  *
+ * A question's record may also hold pretest fields (see
+ * spaced-repetition.js, recordPretest): pretested and pretestResult.
+ *
  * Older saves (version 1, with short names like "box" and "due") are
  * upgraded automatically when they are read.
  */

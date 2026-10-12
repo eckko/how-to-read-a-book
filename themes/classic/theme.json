@@ -1,5 +1,6 @@
 {
   "name": "Classic",
+  "group": "Simple & pastel",
   "fonts": {
     "body": "\"Instrument Sans\",system-ui,sans-serif",
     "headings": "\"Source Serif 4\",Georgia,serif"

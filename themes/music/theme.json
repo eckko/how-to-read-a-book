@@ -1,5 +1,6 @@
 {
   "name": "Music",
+  "group": "Art & music",
   "fonts": {
     "body": "\"Playfair Display\",Georgia,serif",
     "headings": "\"Playfair Display\",Georgia,serif"

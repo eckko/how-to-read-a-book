@@ -25,5 +25,17 @@ Hard rules:
 - To build a question bank from a book, follow "Build a question bank
   from a book file" in `ai-context/recipes.md` (the tools in `tools/`).
   Keep the working folder (`work/`) out of the published site.
-- Run `python3 tests/run_tests.py` after every change. All checks must
-  pass.
+- Question banks with `concepts` follow `ai-context/learning-design.md`.
+  Check them with `python3 tools/validate_bank.py questions.json`.
+- The HTRAB overlay (`htrab/`) is optional and removable: delete the
+  folder and the three lines marked HTRAB in `index.html`. Keep the app
+  free of calls into it; use the events in `htrab/README.md`.
+- This is the HTRAB edition: every concept carries an HTRAB tag. Build
+  banks with `ai-context/htrab-writing.md` (`tools/plan_concept_bank.py`,
+  `tools/merge_concept_bank.py`, `tools/list_htrab_tags.py`).
+- Cloud sync (`js/sync/`) is ON in this edition
+  (`provider: "firebase"` in `js/sync/sync-config.js`). Progress only.
+  The tests switch it off with a routed config, so they never touch
+  the real database.
+- Run `python3 tests/run_tests.py` and `python3 tests/test_tools.py`
+  after every change. All checks must pass.

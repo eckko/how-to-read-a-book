@@ -27,6 +27,9 @@
    * @returns {string}
    */
   function multipleChoiceLabel(question) {
+    if (question.concept) {
+      return "Multiple choice";
+    }
     if (STRUCTURE_SECTION_PATTERN.test(question.section)) {
       return "Structure: why the book is built this way";
     }
@@ -76,7 +79,7 @@
       isAnswered = true;
       markOptions(buttons, rightIndex, pickedIndex);
       const result = pickedIndex === rightIndex ? "got" : "miss";
-      card.showResult(result, { timedOut });
+      card.showResult(result, { timedOut, pickedIndexes: [pickedIndex] });
     }
 
     card.setKeyHint("Keys: 1 to " + options.length + " to answer");

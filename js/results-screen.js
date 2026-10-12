@@ -5,7 +5,10 @@
  *
  * Marks: right = 1, partly right = 0.5, missed = 0.
  * Verdict: Excellent is over 90% with more than 15 questions answered,
- * Pass is 60% or more, Fail is under 60%.
+ * Pass is 60% or more, Needs work is under 60%.
+ *
+ * Warm-up guesses (pretests) are not scored. A Learn session lists them
+ * and the ideas it covered under the score.
  */
 (function setUpResultsScreen(quiz) {
   "use strict";
@@ -28,11 +31,16 @@
   const CONFETTI_FOR_PASS = 32;
   const CONFETTI_DELAY_MS = 250;   // let the results card appear first
 
-  const VERDICT_NAMES = { excellent: "Excellent", pass: "Pass", fail: "Fail" };
+  /** What the reader sees. The saved key for "fail" is kept so old
+      progress files still load; only its name is gentler. */
+  const VERDICT_NAMES = {
+    excellent: "Excellent", pass: "Pass", fail: "Needs work",
+  };
+  const AVERAGE_OF_SESSIONS = 5;
   const RULES_TEXT =
     "Excellent: over " + EXCELLENT_ABOVE_PERCENT + "% with more than " +
     EXCELLENT_NEEDS_MORE_THAN + " questions. Pass: " + PASS_FROM_PERCENT +
-    "% or more. Fail: under " + PASS_FROM_PERCENT +
+    "% or more. Needs work: under " + PASS_FROM_PERCENT +
     "%. A partly-right answer earns half a mark.";
 
   /**
@@ -58,11 +66,14 @@
    */
   function messageFor(verdict, percent, questionCount) {
     if (verdict === "excellent") {
-      return "Outstanding recall. " +
-        "This is what the book looks like when it sticks.";
+      return "Strong session. You kept at the questions until the " +
+        "answers came, and that is what makes them stick.";
     }
     if (verdict === "fail") {
-      return "Not yet. Reread the topics below, then try again.";
+      return quiz.session.state.isGuided ?
+        "Not there yet, and a hard session teaches the most. Open the " +
+        "ideas below, read the cards again, then try again." :
+        "Not yet. Reread the topics below, then try again.";
     }
     const missedExcellentOnCount = percent > EXCELLENT_ABOVE_PERCENT &&
       questionCount <= EXCELLENT_NEEDS_MORE_THAN;
@@ -85,7 +96,7 @@
     const questionCount = score.got + score.part + score.miss;
 
     if (questionCount === 0) {
-      cardElement.appendChild(createNothingAnsweredResult());
+      cardElement.appendChild(createNothingScoredResult());
       return;
     }
     const marks = score.got + 0.5 * score.part;
@@ -110,6 +121,17 @@
     result.appendChild(heroElement);
     result.appendChild(createElement("p", "result-rules", RULES_TEXT));
     result.appendChild(createScoreTally(session.score));
+    const wentRight = createWhatWentRight();
+    if (wentRight) {
+      result.appendChild(wentRight);
+    }
+    const average = createAverageNote();
+    if (average) {
+      result.appendChild(average);
+    }
+    if (session.pretestCount || session.conceptTitles.length) {
+      result.appendChild(createLearningSummary());
+    }
     if (session.askConfidence && session.confidentMissCount) {
       result.appendChild(createConfidentMissNote(session.confidentMissCount));
     }
@@ -145,12 +167,20 @@
     return cardElement;
   }
 
-  /** @returns {HTMLElement} shown when time ran out before any answer */
-  function createNothingAnsweredResult() {
+  /**
+   * Shown when nothing was scored: time ran out before the first
+   * answer, or the session ended after warm-up guesses only.
+   * @returns {HTMLElement}
+   */
+  function createNothingScoredResult() {
+    const session = quiz.session.state;
     const result = createElement("div", "result");
-    result.appendChild(createElement("h2", null,
+    result.appendChild(createElement("h2", null, session.pretestCount ?
+      "Nothing was scored this time." :
       "Time ran out before you answered anything."));
-    result.appendChild(createElement("p", "note",
+    result.appendChild(createElement("p", "note", session.pretestCount ?
+      "Warm-up guesses are not scored. Start a Learn session again " +
+      "to carry on with the idea." :
       "This attempt was not recorded."));
     const actions = createElement("div", "actions is-centered");
     actions.appendChild(createButton("Back to start", "button primary",
@@ -175,7 +205,7 @@
       marks,
       questionCount,
       verdict,
-      scopeName: quiz.settings.scopeName(),
+      scopeName: session.scopeName,
       secondsPerQuestion: session.secondsPerQuestion,
       sessionMinutes: session.isTimed ? session.sessionMinutes : 0,
     });
@@ -227,7 +257,7 @@
     [
       { key: "got", label: "Got it" },
       { key: "part", label: "Partly" },
-      { key: "miss", label: "Missed" },
+      { key: "miss", label: "Not yet" },
     ].forEach(function addCount(entry) {
       const box = createElement("div", "score-" + entry.key);
       box.appendChild(createElement("b", null, String(score[entry.key])));
@@ -238,7 +268,80 @@
   }
 
   /**
-   * "2 confident misses: you were certain and wrong..."
+   * "What went right": the ideas answered right with no miss this
+   * session, or just the count. Shown first, before anything to fix.
+   * @returns {HTMLElement|null}
+   */
+  function createWhatWentRight() {
+    const session = quiz.session.state;
+    const right = session.rightQuestions;
+    if (right.length === 0) {
+      return null;
+    }
+    const missedIdeas = new Set(session.missedQuestions.map(
+      function conceptOf(question) {
+        return question.concept;
+      }));
+    const titles = [];
+    right.forEach(function collect(question) {
+      const concept = quiz.learning.conceptById(question.concept);
+      if (concept && !missedIdeas.has(concept.id) &&
+          !titles.includes(concept.title)) {
+        titles.push(concept.title);
+      }
+    });
+    const line = createElement("p", "note went-right");
+    line.appendChild(createElement("b", null, "What went right: "));
+    line.appendChild(document.createTextNode(
+      countWithWord(right.length, "answer") + " right" + (titles.length ?
+        ", with no slips on " + titles.slice(0, 3).join(", ") + "." : ".")));
+    return line;
+  }
+
+  /**
+   * The average of the last few sessions, with a reminder that one
+   * session is a noisy measure. Needs at least two sessions.
+   * @returns {HTMLElement|null}
+   */
+  function createAverageNote() {
+    const results = quiz.progress.saved.recentResults
+      .slice(0, AVERAGE_OF_SESSIONS);
+    if (results.length < 2) {
+      return null;
+    }
+    const total = results.reduce(function add(sum, result) {
+      return sum + result.percent;
+    }, 0);
+    return createElement("p", "note average-note",
+      "Your last " + results.length + " sessions average " +
+      formatOneDecimal(total / results.length) + "%. One session is " +
+      "a noisy measure, so judge yourself by the trend.");
+  }
+
+  /**
+   * "Ideas this session: ..." and the number of warm-up guesses, which
+   * are not part of the score.
+   * @returns {HTMLElement}
+   */
+  function createLearningSummary() {
+    const session = quiz.session.state;
+    const summary = createElement("p", "note learning-summary");
+    const parts = [];
+    if (session.conceptTitles.length) {
+      parts.push("Ideas this session: " + session.conceptTitles.join(", ") +
+        ".");
+    }
+    if (session.pretestCount) {
+      parts.push(countWithWord(session.pretestCount, "warm-up guess",
+        "warm-up guesses") + " not scored. The questions you did " +
+        "score will come back by spaced review.");
+    }
+    summary.textContent = parts.join(" ");
+    return summary;
+  }
+
+  /**
+   * "2 confident misses: you were certain and wrong...".
    * @param {number} count
    * @returns {HTMLElement}
    */
@@ -260,8 +363,7 @@
     missedQuestions.forEach(function addMissedQuestion(question) {
       const item = createElement("li", null, question.q);
       item.appendChild(createElement("span", null,
-        quiz.book.unitFullName(question) + ". " +
-        quiz.book.labels.topic + ": " + question.section));
+        quiz.learning.rereadText(question)));
       list.appendChild(item);
     });
     result.appendChild(list);
@@ -270,10 +372,13 @@
   /** @returns {HTMLElement} "Practise again" and "Back to start" */
   function createResultButtons() {
     const actions = createElement("div", "actions is-centered");
-    actions.appendChild(createButton("Practise again", "button primary",
+    const hasIdeas = quiz.learning.hasConcepts();
+    actions.appendChild(createButton(
+      hasIdeas ? "Keep going" : "Practise again", "button primary",
       function practiseAgain() {
         quiz.session.returnHome();
-        quiz.session.startSession();
+        quiz.session.startSession(
+          hasIdeas ? quiz.settings.chooseKeepGoing() : undefined);
       }));
     actions.appendChild(createButton("Back to start", "button",
       quiz.session.returnHome));

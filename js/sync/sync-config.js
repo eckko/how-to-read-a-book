@@ -14,6 +14,9 @@
  * The Firebase values below are not secrets: Firebase web config is
  * meant to be public. Who can read or write what is controlled by the
  * security rules in js/sync/providers/firebase-firestore.rules.
+ *
+ * This template starts with sync OFF so local testing never touches the
+ * real database. Set provider to "firebase" before publishing.
  */
 window.RecallQuizSyncConfig = {
   provider: "firebase",
