@@ -113,10 +113,31 @@ def answer_question(page, question, answer_wrongly):
         page.keyboard.press("1" if answer_wrongly else "3")
 
 
+OPEN_SECTIONS_SCRIPT = """
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('#settings-button')) return;
+  setTimeout(() => {
+    if (!document.body.classList.contains('in-settings')) return;
+    document.querySelectorAll('#settings-screen details.settings-section')
+      .forEach((section) => { section.open = true; });
+  }, 0);
+}, true);
+"""
+
+
 def open_page(browser, questions=None, book=None, width=430, bank=None,
-              block=None, view="ideas"):
+              block=None, view="ideas", keep_going=True,
+              open_sections=True):
     """Open the quiz, optionally with a made-up questions.json, a bank
-    from banks/ (bank="how-to-read-a-book") or some files blocked."""
+    from banks/ (bank="how-to-read-a-book") or some files blocked.
+
+    Keep me going is hidden until a reader shows it, so most tests open
+    the page with it shown (a saved record for the book, only if the book
+    has none yet). Pass keep_going=False to see the fresh defaults.
+
+    Settings sections start folded on every visit, so most tests open
+    them all as the screen opens. Pass open_sections=False to see the
+    sections folded."""
     page = browser.new_page(viewport={"width": width, "height": 900})
     page.errors = []
     page.on("pageerror", lambda error: page.errors.append(str(error)))
@@ -125,6 +146,8 @@ def open_page(browser, questions=None, book=None, width=430, bank=None,
     page.route("**/js/sync/sync-config.js", lambda route: route.fulfill(
         content_type="application/javascript",
         body='window.RecallQuizSyncConfig = {provider: "none"};'))
+    if open_sections:
+        page.add_init_script(OPEN_SECTIONS_SCRIPT)
     if view:
         # Most tests click ideas straight under a chapter (ideas view).
         page.add_init_script(
@@ -134,6 +157,16 @@ def open_page(browser, questions=None, book=None, width=430, bank=None,
     served = dict(book or BOOK)
     if questions is not None:
         served["questions"] = questions
+    if keep_going:
+        book_id = served.get("id", "book")
+        if bank:
+            bank_file = SITE_FOLDER / "banks" / f"{bank}.json"
+            book_id = json.loads(bank_file.read_text()).get("id", "book")
+        key = "recall-quiz-book:" + book_id
+        page.add_init_script(
+            f"if (!localStorage.getItem('{key}')) localStorage.setItem("
+            f"'{key}', JSON.stringify({{version: 2, layout: "
+            "{show: {keepGoing: true}}, flags: {}, ideaFlags: {}}))")
     page.route("**/questions.json", lambda route: route.fulfill(json=served))
     page.goto(PAGE_URL + (f"?bank=banks/{bank}.json" if bank else ""))
     page.wait_for_selector("#book-title:not(:text-is('Recall Quiz'))")
@@ -463,24 +496,31 @@ def test_themes(browser):
     print("Themes")
     theme_folders = [folder for folder in (SITE_FOLDER / "themes").iterdir()
                      if (folder / "theme.json").exists()]
-    page = open_page(browser)
+    page = open_page(browser, open_sections=False)
     page.click("#settings-button")
     check("Appearance is folded by default",
           not page.is_visible("#theme-tiles"))
     page.click("#appearance-section summary")
-    groups = page.locator("#theme-groups button").count()
-    check("themes are grouped", groups >= 3, str(groups))
+    groups = page.locator("#theme-tiles .theme-group").count()
+    check("themes are in at least 8 groups", groups >= 8, str(groups))
+    opened = page.locator("#theme-tiles .theme-group[open]").count()
+    check("groups are folded by default", opened == 0, str(opened))
     all_tiles = page.evaluate(
         "() => document.querySelectorAll('#theme-tiles .theme-tile').length")
-    visible_tiles = page.locator("#theme-tiles .theme-tile:visible").count()
-    check("only one group of tiles shows at a time",
-          0 < visible_tiles < all_tiles, f"{visible_tiles}/{all_tiles}")
+    check("tiles are hidden until a group opens",
+          page.locator("#theme-tiles .theme-tile:visible").count() == 0)
     tile_count = all_tiles
     check("every theme folder has a tile in the picker",
           tile_count == len(theme_folders),
           f"{tile_count} tiles, {len(theme_folders)} folders")
-    page.click("#theme-groups button[data-group='Playful']")
-    page.click("#theme-groups button[data-group='Playful']")
+    finance = page.evaluate("""() => [...document.querySelectorAll(
+        '#theme-tiles .theme-group')].filter(g => g.textContent.trim()
+        .startsWith('Finance')).map(g => g.querySelectorAll(
+        '.theme-tile').length)""")
+    check("a Finance group holds the 7 finance themes", finance == [7],
+          str(finance))
+    page.evaluate("""() => document.querySelector(
+        ".theme-tile[data-theme-id='lego']").closest('details').open = true""")
     page.click(".theme-tile[data-theme-id='lego']")
     page.click("#theme-mode-choice button[data-theme-mode='dark']")
     root = page.evaluate("""() => [
@@ -539,8 +579,15 @@ def test_home_views(browser):
     page.close()
 
 
+# The synced page serves the real questions.json, so use its book id.
+TEST_BOOK_ID = json.loads(
+    (SITE_FOLDER / "questions.json").read_text()).get("id", "book")
+SETTINGS_STORE_KEY = ("recall-quiz-example-store:example-user/"
+                      "_settings:" + TEST_BOOK_ID)
+
+
 def open_synced_page(browser, account_theme=None, local_theme=None,
-                     account_layout=None):
+                     account_layout=None, open_sections=False):
     """Open the quiz signed in to the test account (example-in-browser),
     with an optional theme already in the account or in this browser."""
     page = browser.new_page(viewport={"width": 430, "height": 900})
@@ -551,21 +598,26 @@ def open_synced_page(browser, account_theme=None, local_theme=None,
         content_type="application/javascript",
         body='window.RecallQuizSyncConfig = {provider: "example-in-browser",'
              ' saveDelaySeconds: 1, "example-in-browser": {}};'))
+    if open_sections:
+        page.add_init_script(OPEN_SECTIONS_SCRIPT)
     lines = ["sessionStorage.setItem('recall-quiz-example-account', "
              "'example-user');"]
     if account_theme:
+        document = {"v": 1, "theme": account_theme}
+        if account_layout:
+            document["layout"] = account_layout
         lines.append(
-            "sessionStorage.setItem('recall-quiz-example-store:"
-            "example-user/_settings', JSON.stringify({theme: "
-            + json.dumps(account_theme) + "}));")
-    if account_layout:
+            "sessionStorage.setItem('" + SETTINGS_STORE_KEY + "', "
+            "JSON.stringify(" + json.dumps(document) + "));")
+    elif account_layout:
         lines.append(
-            "sessionStorage.setItem('recall-quiz-example-store:"
-            "example-user/_settings', JSON.stringify({layout: "
+            "sessionStorage.setItem('" + SETTINGS_STORE_KEY + "', "
+            "JSON.stringify({v: 1, layout: "
             + json.dumps(account_layout) + "}));")
     if local_theme:
-        lines.append("localStorage.setItem('recall-quiz:theme', "
-                     "JSON.stringify(" + json.dumps(local_theme) + "));")
+        lines.append("localStorage.setItem('recall-quiz:theme:"
+                     + TEST_BOOK_ID + "', JSON.stringify("
+                     + json.dumps(dict(local_theme, v=1)) + "));")
     page.add_init_script("if (!sessionStorage.getItem('seeded')) {"
                          + "".join(lines)
                          + "sessionStorage.setItem('seeded', '1'); }")
@@ -578,7 +630,7 @@ def account_theme(page):
     """The theme saved in the test account, or None."""
     return page.evaluate(
         "() => { const text = sessionStorage.getItem("
-        "'recall-quiz-example-store:example-user/_settings');"
+        "'" + SETTINGS_STORE_KEY + "');"
         " return text ? JSON.parse(text).theme : null; }")
 
 
@@ -597,11 +649,18 @@ def test_theme_follows_the_account(browser):
     page = open_synced_page(browser)
     page.click("#settings-button")
     page.click("#appearance-section summary")
-    page.click("#theme-groups button[data-group='Playful']")
+    finance = page.evaluate("""() => [...document.querySelectorAll(
+        '#theme-tiles .theme-group')].filter(g => g.textContent.trim()
+        .startsWith('Finance')).map(g => g.querySelectorAll(
+        '.theme-tile').length)""")
+    check("a Finance group holds the 7 finance themes", finance == [7],
+          str(finance))
+    page.evaluate("""() => document.querySelector(
+        ".theme-tile[data-theme-id='lego']").closest('details').open = true""")
     page.click(".theme-tile[data-theme-id='lego']")
     page.wait_for_function(
-        "sessionStorage.getItem('recall-quiz-example-store:example-user/"
-        "_settings') !== null", timeout=8000)
+        "sessionStorage.getItem('" + SETTINGS_STORE_KEY
+        + "') !== null", timeout=8000)
     saved = account_theme(page)
     check("choosing a theme saves it to the account",
           saved and saved["t"] == "lego", str(saved))
@@ -612,8 +671,8 @@ def test_theme_follows_the_account(browser):
         account_theme={"t": "classic", "m": "light", "a": 1000},
         local_theme={"t": "lego", "m": "dark", "a": 1900000000000})
     page.wait_for_function(
-        "sessionStorage.getItem('recall-quiz-example-store:example-user/"
-        "_settings').includes('lego')", timeout=8000)
+        "sessionStorage.getItem('" + SETTINGS_STORE_KEY
+        + "').includes('lego')", timeout=8000)
     theme = page.evaluate("() => document.documentElement.dataset.theme")
     check("a newer choice here beats an older one in the account",
           theme == "lego" and not page.errors, "; ".join(page.errors))
@@ -645,7 +704,8 @@ def test_home_layout(browser):
         page.click(panel + " .panel-toggle")
         check(panel + " opens again", page.is_visible(panel + " " + body))
     page.click("#where-you-stand .expand-controls button:text('Expand all')")
-    closed = page.locator("#where-you-stand details:not([open])").count()
+    closed = page.locator(
+        "#where-you-stand details:not([open]):not(.flag-bar)").count()
     check("Expand all opens every chapter, topic and idea", closed == 0,
           str(closed))
     page.click(
@@ -686,7 +746,8 @@ def test_home_layout(browser):
           not page.is_visible("#session-setup #keep-going-block")
           and not page.is_visible("#progress-panel .progress-overview")
           and not page.is_visible("#recent-results .history-row"))
-    closed = page.locator("#where-you-stand details:not([open])").count()
+    closed = page.locator(
+        "#where-you-stand details:not([open]):not(.flag-bar)").count()
     check("All open plus Open starts everything open", closed == 0,
           str(closed))
     page.reload()
@@ -696,8 +757,9 @@ def test_home_layout(browser):
     check("everything is remembered after a reload",
           not page.is_visible("#session-setup #keep-going-block")
           and choices["timer"] == 30
-          and page.locator("#where-you-stand details:not([open])").count()
-          == 0 and not page.is_visible("#recent-results .history-row"))
+          and page.locator("#where-you-stand details:not([open])"
+                           ":not(.flag-bar)").count() == 0
+          and not page.is_visible("#recent-results .history-row"))
 
     # Overrides on the home screen leave the defaults alone.
     page.click("#session-setup .panel-toggle")
@@ -709,7 +771,7 @@ def test_home_layout(browser):
           choices["timer"] == 60, str(choices))
     saved = page.evaluate(
         "() => JSON.parse(localStorage.getItem("
-        "'recall-quiz-home-layout')).timer")
+        "'recall-quiz-book:' + RecallQuiz.book.bookId())).layout.timer")
     check("...but the saved default stays 30s", saved == 30, str(saved))
     page.click("#settings-button")
     check("Settings still shows the default",
@@ -723,7 +785,7 @@ def test_home_layout(browser):
     check("no errors", not page.errors, "; ".join(page.errors))
     page.close()
 
-    page = open_synced_page(browser)
+    page = open_synced_page(browser, open_sections=True)
     page.wait_for_selector("#account-body .button-row button",
                            state="attached")
     check("the home screen shows no bar once signed in",
@@ -737,34 +799,419 @@ def test_home_layout(browser):
     page.click("[data-layout='stand'] [data-value='closed']")
     page.click("[data-layout='timer'] [data-value='15']")
     page.wait_for_function(
-        "(sessionStorage.getItem('recall-quiz-example-store:example-user/"
-        "_settings') || '').includes('\"t\":15')", timeout=8000)
+        "(sessionStorage.getItem('" + SETTINGS_STORE_KEY
+        + "') || '').includes('\"timer\":15')", timeout=8000)
     saved = page.evaluate(
         "() => JSON.parse(sessionStorage.getItem("
-        "'recall-quiz-example-store:example-user/_settings')).layout")
+        "'" + SETTINGS_STORE_KEY + "')).layout")
     check("settings are saved to the account",
-          saved and saved["w"] == "closed" and saved["t"] == 15
-          and saved["f"] is True, str(saved))
+          saved and saved["stand"] == "closed" and saved["timer"] == 15
+          and saved["confidence"] is True, str(saved))
     page.click("#settings-button")
     page.click("#question-timer-choice [data-value='60']")
     page.wait_for_timeout(1500)
     saved = page.evaluate(
         "() => JSON.parse(sessionStorage.getItem("
-        "'recall-quiz-example-store:example-user/_settings')).layout.t")
+        "'" + SETTINGS_STORE_KEY + "')).layout.timer")
     check("a home-screen override is not saved to the account",
           saved == 15, str(saved))
     page.close()
 
     page = open_synced_page(browser, account_layout={
-        "s": "closed", "w": "open", "c": "closed", "i": "open",
-        "p": "open", "r": "open", "t": 60, "f": False, "h": False,
-        "u": {}, "a": 2000000000000})
+        "setup": "closed", "timer": 60, "confidence": False,
+        "at": 2000000000000})
     page.wait_for_function(
         "RecallQuiz.settings.readChoices().timer === 60", timeout=8000)
     check("settings saved in the account are used on this device",
           not page.is_visible("#session-setup #keep-going-block")
           and not page.evaluate(
               "() => RecallQuiz.settings.readChoices().confidence"))
+    page.close()
+
+
+def test_show_hide_and_defaults(browser):
+    """Settings can hide each control; hidden controls keep their value."""
+    print("Show / hide and defaults")
+    page = open_page(browser, view=None)
+    page.click("#settings-button")
+    page.click("[data-layout='timer'] [data-value='30']")
+    page.click("[data-layout='show.timer'] [data-value='hide']")
+    page.click("[data-layout='show.custom'] [data-value='hide']")
+    page.click("#settings-button")
+    check("a hidden control is not shown",
+          not page.is_visible("#timer-field"))
+    check("a hidden control keeps its default value",
+          page.evaluate("() => RecallQuiz.settings.readChoices().timer")
+          == 30)
+    check("hiding Custom practice hides its section",
+          not page.is_visible("#custom-practice"))
+    check("no hide buttons sit on the home screen",
+          page.locator("#home-screen [data-layout]").count() == 0)
+    page.click("#settings-button")
+    page.click("[data-layout='show.custom'] [data-value='show']")
+    page.click("[data-layout='customStart'] [data-value='open']")
+    page.click("[data-layout='filter'] [data-value='due']")
+    page.click("#settings-button")
+    check("Custom practice can start open",
+          page.evaluate("() => document.getElementById("
+                        "'custom-practice').open"))
+    check("the default question filter is used",
+          page.get_attribute("#question-filter-choice [data-value='due']",
+                             "aria-pressed") == "true")
+    page.reload()
+    page.wait_for_selector("#where-you-stand .unit-progress")
+    check("the hidden control stays hidden after a reload",
+          not page.is_visible("#timer-field"))
+    check("no errors", not page.errors, "; ".join(page.errors))
+    page.close()
+
+    fresh = open_page(browser, view=None, book=dict(
+        BOOK, id="another-book"))
+    check("another book starts from fresh defaults",
+          fresh.is_visible("#timer-field")
+          and fresh.get_attribute(
+              "#question-filter-choice [data-value='all']",
+              "aria-pressed") == "true")
+    fresh.close()
+
+
+def test_lesson_picker_cascade(browser):
+    """Chapter, then topic, then idea."""
+    print("Cascading lesson picker")
+    page = open_page(browser, view=None)
+    check("the topic drop-down starts hidden for the whole book",
+          not page.is_visible("#topic-field"))
+    first = page.evaluate(
+        "() => RecallQuiz.book.unitIds[0]")
+    page.select_option("#unit-picker", first)
+    check("choosing a chapter shows its topics",
+          page.is_visible("#topic-field")
+          and page.locator("#topic-picker option").count() > 1)
+    page.select_option("#topic-picker", index=1)
+    check("choosing a topic shows its ideas",
+          page.is_visible("#idea-field")
+          and page.locator("#idea-picker option").count() > 1)
+    page.select_option("#idea-picker", index=1)
+    scope = page.evaluate("() => RecallQuiz.scopePicker.read()")
+    check("the scope has chapter, topic and idea",
+          scope.get("unit") == first and scope.get("section")
+          and scope.get("concept"), str(scope))
+    page.select_option("#unit-picker", "all")
+    check("Whole book hides the lower levels",
+          not page.is_visible("#topic-field")
+          and not page.is_visible("#idea-field"))
+    page.close()
+
+
+def test_flags(browser):
+    """Flag a question; Bad and Useless questions disappear."""
+    print("Question flags")
+    page = open_page(browser, view=None)
+    before = page.evaluate("() => RecallQuiz.book.allQuestions().length")
+    page.evaluate("() => RecallQuiz.bookSettings.toggleFlag("
+                  "RecallQuiz.book.data.questions[0].id, 'bad')")
+    after = page.evaluate("() => RecallQuiz.book.allQuestions().length")
+    check("a Bad question leaves the book", after == before - 1,
+          f"{before} -> {after}")
+    page.evaluate("() => RecallQuiz.bookSettings.toggleFlag("
+                  "RecallQuiz.book.data.questions[1].id, 'revisit')")
+    check("a Revisit question stays in",
+          page.evaluate("() => RecallQuiz.book.allQuestions().length")
+          == after)
+    page.evaluate("() => RecallQuiz.bookSettings.toggleFlag("
+                  "RecallQuiz.book.data.questions[1].id, 'important')")
+    flags = page.evaluate("() => RecallQuiz.bookSettings.flagsOf("
+                          "RecallQuiz.book.data.questions[1].id)")
+    check("a question can have several flags",
+          flags == ["revisit", "important"], str(flags))
+    page.click("#settings-button")
+    check("Settings lists the flagged questions",
+          page.locator("#flag-review-list .flag-review-row").count() == 2)
+    export = page.evaluate("() => RecallQuiz.flags.createExport()")
+    check("the export has ids, flags and counts",
+          export["version"] == 1 and export["counts"]["bad"] == 1
+          and len(export["questions"]) == 2, str(export["counts"]))
+    page.locator("#flag-review-list .flag-review-row").first.get_by_text(
+        "Clear flags").click()
+    page.locator("#flag-review-list .flag-review-row").first.get_by_text(
+        "Clear flags").click()
+    check("clearing flags undoes the hiding",
+          page.evaluate("() => RecallQuiz.book.allQuestions().length")
+          == before)
+    page.reload()
+    page.wait_for_selector("#where-you-stand .unit-progress")
+    page.evaluate("() => RecallQuiz.bookSettings.toggleFlag("
+                  "RecallQuiz.book.data.questions[2].id, 'useless')")
+    page.reload()
+    page.wait_for_selector("#where-you-stand .unit-progress")
+    check("flags are remembered after a reload",
+          page.evaluate("() => RecallQuiz.book.allQuestions().length")
+          == before - 1)
+    page.close()
+
+    page = open_page(browser, view=None)
+    start_session(page)
+    check("a question has a collapsed flag bar",
+          page.is_visible(".flag-bar summary")
+          and not page.evaluate(
+              "() => document.querySelector('.flag-bar').open"))
+    page.click(".flag-bar summary")
+    page.click(".flag-button[data-flag='important']")
+    check("pressing a flag marks it",
+          page.get_attribute(".flag-button[data-flag='important']",
+                             "aria-pressed") == "true")
+    check("no errors", not page.errors, "; ".join(page.errors))
+    page.close()
+
+
+def test_saved_settings_upgrade(browser):
+    """Old and newer saved records are handled safely."""
+    print("Saved settings versions")
+    page = open_page(browser, view=None)
+    page.evaluate("""() => localStorage.setItem(
+        'recall-quiz-book:' + RecallQuiz.book.bookId(),
+        JSON.stringify({layout: {timer: 60, at: 5}}))""")
+    page.reload()
+    page.wait_for_selector("#where-you-stand .unit-progress")
+    check("a record without a version is read as version 1",
+          page.evaluate("() => RecallQuiz.settings.readChoices().timer")
+          == 60)
+    page.evaluate("""() => localStorage.setItem(
+        'recall-quiz-book:' + RecallQuiz.book.bookId(),
+        JSON.stringify({version: 99, layout: {timer: 30}, flags: {}}))""")
+    page.reload()
+    page.wait_for_selector("#where-you-stand .unit-progress")
+    page.click("#settings-button")
+    page.click("[data-layout='timer'] [data-value='15']")
+    kept = page.evaluate(
+        "() => JSON.parse(localStorage.getItem('recall-quiz-book:' + "
+        "RecallQuiz.book.bookId())).version")
+    check("a record from a newer version is never overwritten",
+          kept == 99, str(kept))
+    check("no errors", not page.errors, "; ".join(page.errors))
+    page.close()
+
+
+def test_keep_going_and_filter_switches(browser):
+    """Keep me going and each "Which questions" option have switches."""
+    print("Keep me going and question option switches")
+    page = open_page(browser, view=None, keep_going=False)
+    check("Keep me going is hidden by default",
+          not page.is_visible("#keep-going-button")
+          and not page.is_visible("#keep-going-summary")
+          and not page.is_visible("#study-hint"))
+    check("the 5-minute button has its own switch and stays",
+          page.is_visible("#quick-session-button"))
+    page.click("#custom-practice summary")
+    visible = [name for name in ["due", "gaps", "important", "all"]
+               if page.is_visible(
+                   f"#question-filter-choice [data-value='{name}']")]
+    check("only Important only and Everything show by default",
+          visible == ["important", "all"], str(visible))
+    page.click("#settings-button")
+    page.click("[data-layout='show.keepGoing'] [data-value='show']")
+    page.click("[data-layout='show.filterDue'] [data-value='show']")
+    page.click("#settings-button")
+    check("showing Keep me going brings back the button, line and hint",
+          page.is_visible("#keep-going-button")
+          and page.is_visible("#keep-going-summary")
+          and page.is_visible("#study-hint"))
+    check("showing an option brings it back",
+          page.is_visible("#question-filter-choice [data-value='due']"))
+    page.click("#settings-button")
+    page.click("[data-layout='filter'] [data-value='due']")
+    for name in ["Due", "Gaps", "Important", "All"]:
+        page.click(f"[data-layout='show.filter{name}'] "
+                   "[data-value='hide']")
+    page.click("#settings-button")
+    check("hiding every option hides the whole row",
+          not page.is_visible("#filter-field"))
+    check("the default filter still applies when everything is hidden",
+          page.get_attribute("#question-filter-choice [data-value='due']",
+                             "aria-pressed") == "true")
+    page.reload()
+    page.wait_for_selector("#where-you-stand .unit-progress")
+    check("the switches are remembered after a reload",
+          not page.is_visible("#filter-field")
+          and page.is_visible("#keep-going-button"))
+    check("no errors", not page.errors, "; ".join(page.errors))
+    page.close()
+
+
+def test_idea_flags(browser):
+    """Ideas can be flagged; Bad and Useless ones disappear."""
+    print("Idea flags")
+    page = open_page(browser, view=None)
+    ideas = page.evaluate("() => RecallQuiz.learning.concepts()"
+                          ".map(c => c.id)")
+    questions = page.evaluate("() => RecallQuiz.book.allQuestions().length")
+    page.evaluate(f"() => RecallQuiz.bookSettings.toggleIdeaFlag("
+                  f"'{ideas[0]}', 'bad')")
+    after = page.evaluate("() => RecallQuiz.learning.concepts()"
+                          ".map(c => c.id)")
+    check("a Bad idea leaves the idea lists", after == ideas[1:], str(after))
+    check("the idea's questions stay",
+          page.evaluate("() => RecallQuiz.book.allQuestions().length")
+          == questions)
+    check("the idea is gone from the home screen",
+          page.locator(f".concept-row[data-concept-id='{ideas[0]}']")
+          .count() == 0)
+    page.evaluate(f"() => RecallQuiz.bookSettings.toggleIdeaFlag("
+                  f"'{ideas[1]}', 'revisit')")
+    page.evaluate(f"() => RecallQuiz.bookSettings.toggleIdeaFlag("
+                  f"'{ideas[1]}', 'important')")
+    flags = page.evaluate("() => RecallQuiz.bookSettings.ideaFlagsOf("
+                          f"'{ideas[1]}')")
+    check("an idea can have several flags",
+          flags == ["revisit", "important"], str(flags))
+    check("idea flags never touch question flags",
+          page.evaluate("() => RecallQuiz.bookSettings.listFlagged()"
+                        ".length") == 0)
+    page.click("#settings-button")
+    check("Settings lists the flagged ideas",
+          page.locator("#idea-flag-review-list .flag-review-row").count()
+          == 2)
+    export = page.evaluate("() => RecallQuiz.flags.createIdeaExport()")
+    check("the idea export has ids, flags and counts",
+          export["counts"]["bad"] == 1 and len(export["ideas"]) == 2
+          and export["ideas"][0]["id"] in ideas, str(export["counts"]))
+    page.locator("#idea-flag-review-list .flag-review-row").nth(1).get_by_text(
+        "Clear flags").click()
+    page.locator("#idea-flag-review-list .flag-review-row").first.get_by_text(
+        "Clear flags").click()
+    check("clearing flags brings a hidden idea back",
+          page.evaluate("() => RecallQuiz.learning.concepts().length")
+          == len(ideas))
+    page.reload()
+    page.wait_for_selector("#where-you-stand .unit-progress")
+    page.evaluate(f"() => RecallQuiz.bookSettings.toggleIdeaFlag("
+                  f"'{ideas[2]}', 'useless')")
+    page.reload()
+    page.wait_for_selector("#where-you-stand .unit-progress")
+    check("idea flags are remembered after a reload",
+          page.evaluate("() => RecallQuiz.learning.concepts().length")
+          == len(ideas) - 1)
+    saved = page.evaluate(
+        "() => JSON.parse(localStorage.getItem('recall-quiz-book:' + "
+        "RecallQuiz.book.bookId())).version")
+    check("the saved record is version 2", saved == 2, str(saved))
+    page.close()
+
+    page = open_page(browser)
+    row = open_concept(page, 0)
+    bar = row.locator(".flag-bar")
+    check("an idea has a collapsed flag bar",
+          bar.count() == 1 and not bar.evaluate("d => d.open"))
+    bar.locator("summary").click()
+    row.locator(".flag-button[data-flag='important']").click()
+    check("pressing a flag on an idea marks it",
+          row.locator(".flag-button[data-flag='important']").get_attribute(
+              "aria-pressed") == "true")
+    check("the open idea stays open when it is flagged Important",
+          row.evaluate("d => d.open"))
+    page.click("#settings-button")
+    page.click("[data-layout='show.ideaFlagBar'] [data-value='hide']")
+    page.click("#settings-button")
+    page.reload()
+    page.wait_for_selector("#where-you-stand .unit-progress")
+    open_concept(page, 0)
+    check("the idea flag bar can be hidden in Settings",
+          page.locator(".concept-row .flag-bar").count() == 0)
+    check("no errors", not page.errors, "; ".join(page.errors))
+    page.close()
+
+
+def test_important_ideas_come_first(browser):
+    """Keep me going offers an Important idea before the others."""
+    print("Important ideas first")
+    free_book = json.loads(json.dumps(BOOK))
+    for concept in free_book["concepts"]:
+        concept["requires"] = []
+    page = open_page(browser, view=None, book=free_book)
+    page.evaluate("() => RecallQuiz.bookSettings.toggleIdeaFlag("
+                  "'weekdays', 'important')")
+    first = page.evaluate(
+        "() => RecallQuiz.learning.conceptsToLearn("
+        "{unitId: 'all', conceptCount: 1})[0].id")
+    check("an Important core idea is taught before the other core ideas",
+          first == "weekdays", first)
+    page.close()
+
+
+def test_idea_flags_upgrade_and_sync(browser):
+    """A version 1 record and account copy gain idea flags."""
+    print("Idea flags: upgrade and account sync")
+    page = open_page(browser, view=None)
+    page.evaluate("""() => localStorage.setItem(
+        'recall-quiz-book:' + RecallQuiz.book.bookId(),
+        JSON.stringify({version: 1, layout: {timer: 30, at: 5},
+                        flags: {}}))""")
+    page.reload()
+    page.wait_for_selector("#where-you-stand .unit-progress")
+    check("a version 1 record keeps its layout",
+          page.evaluate("() => RecallQuiz.settings.readChoices().timer")
+          == 30)
+    page.evaluate("() => RecallQuiz.bookSettings.toggleIdeaFlag("
+                  "RecallQuiz.learning.concepts()[0].id, 'revisit')")
+    saved = page.evaluate(
+        "() => JSON.parse(localStorage.getItem('recall-quiz-book:' + "
+        "RecallQuiz.book.bookId()))")
+    check("it is saved as version 2 with the idea flag",
+          saved["version"] == 2 and len(saved["ideaFlags"]) == 1
+          and saved["layout"]["timer"] == 30, str(saved))
+    page.close()
+
+    page = open_synced_page(browser)
+    page.wait_for_selector("#account-body .button-row button",
+                           state="attached")
+    page.evaluate("() => RecallQuiz.bookSettings.toggleIdeaFlag("
+                  "RecallQuiz.learning.concepts()[0].id, 'important')")
+    page.wait_for_function(
+        "(key) => { const t = sessionStorage.getItem(key);"
+        " return t && JSON.parse(t).ideaFlags"
+        " && Object.keys(JSON.parse(t).ideaFlags).length === 1; }",
+        arg=SETTINGS_STORE_KEY, timeout=8000)
+    doc = page.evaluate("(key) => JSON.parse(sessionStorage.getItem(key))",
+                        SETTINGS_STORE_KEY)
+    check("idea flags are saved to the account (version 2)",
+          doc["v"] == 2 and doc["flags"] == {}, str(doc)[:200])
+    page.close()
+
+
+def test_settings_sections_fold(browser):
+    """Every Settings section is folded on every visit."""
+    print("Collapsible Settings sections")
+    page = open_synced_page(browser)
+    page.wait_for_selector("#account-body .button-row button",
+                           state="attached")
+    page.click("#settings-button")
+    sections = page.locator("#settings-screen details.settings-section")
+    total = sections.count()
+    opened = page.locator(
+        "#settings-screen details.settings-section[open]").count()
+    check("every Settings section is a folded panel",
+          total >= 8 and opened == 0, f"{total} sections, {opened} open")
+    shown = 0
+    for index in range(total):
+        body = sections.nth(index).locator(":scope > :not(summary)").first
+        if sections.nth(index).is_visible() and body.is_visible():
+            shown += 1
+    check("their contents are hidden until opened", shown == 0, str(shown))
+    summary = page.inner_text("#account-current")
+    check("the folded Account title shows the signed-in name",
+          summary == "Example User" or len(summary) > 0, summary)
+    page.click("#account-section summary")
+    page.click("#appearance-section summary")
+    page.click("#visibility-section summary")
+    page.click("#settings-button")
+    page.click("#settings-button")
+    opened = page.locator(
+        "#settings-screen details.settings-section[open]").count()
+    check("each visit starts fully folded again", opened == 0, str(opened))
+    hidden_note = page.inner_text("#visibility-section-current")
+    check("a folded section shows a short summary",
+          "hidden" in hidden_note or "shown" in hidden_note, hidden_note)
+    check("no errors", not page.errors, "; ".join(page.errors))
     page.close()
 
 
@@ -804,7 +1251,7 @@ def open_concept(page, index):
     if not unit.evaluate("d => d.open"):
         unit.locator("summary").first.click()
     row = page.locator(".concept-row").nth(index)
-    row.locator("summary").click()
+    row.locator(":scope > summary").click()
     return row
 
 
@@ -876,8 +1323,10 @@ def test_any_order(browser):
     check("Teach me on the second idea starts with its warm-up guess",
           first.get("isPretestRun") and first["concept"] == "congruence",
           str(first.get("concept")))
-    check("a warm-up guess has no Show the idea button",
-          not page.is_visible(".idea-again"))
+    check("a warm-up guess offers a collapsed Read the idea panel",
+          page.inner_text(".idea-again summary").startswith("Read the idea")
+          and page.evaluate(
+              "() => !document.querySelector('.idea-again').open"))
     page.click("text=End session")
     page.close()
 
@@ -1340,6 +1789,15 @@ def main():
             test_home_views(browser)
             test_theme_follows_the_account(browser)
             test_home_layout(browser)
+            test_show_hide_and_defaults(browser)
+            test_lesson_picker_cascade(browser)
+            test_flags(browser)
+            test_saved_settings_upgrade(browser)
+            test_keep_going_and_filter_switches(browser)
+            test_idea_flags(browser)
+            test_important_ideas_come_first(browser)
+            test_idea_flags_upgrade_and_sync(browser)
+            test_settings_sections_fold(browser)
             test_phone_width(browser)
             browser.close()
     finally:
